@@ -7,9 +7,10 @@ import {
   User,
   CreditCard,
   Activity,
+  Settings,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Sidebar,
   SidebarContent,
@@ -29,12 +30,19 @@ const navItems = [
   { title: "Progress", url: "/progress", icon: TrendingUp },
   { title: "Profile", url: "/profile", icon: User },
   { title: "Subscription", url: "/subscription", icon: CreditCard },
+  { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
-  const { state } = useSidebar();
+  const { state, setOpenMobile, isMobile } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
+
+  const handleNavClick = () => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  };
 
   return (
     <Sidebar collapsible="icon" className="border-r-0">
@@ -65,6 +73,7 @@ export function AppSidebar() {
                       <NavLink
                         to={item.url}
                         end={item.url === "/"}
+                        onClick={handleNavClick}
                         className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all duration-250 ${
                           isActive
                             ? "glass-card text-primary glow-primary"
