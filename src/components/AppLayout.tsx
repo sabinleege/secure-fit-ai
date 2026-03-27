@@ -1,7 +1,7 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
-import { Bell, Menu } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Menu } from "lucide-react";
+import { NotificationPanel } from "@/components/NotificationPanel";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -12,17 +12,14 @@ export function AppLayout({ children }: AppLayoutProps) {
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">
         <AppSidebar />
-        <div className="flex-1 flex flex-col min-h-screen">
-          <header className="h-16 flex items-center justify-between px-6 border-b border-border/50">
+        <div className="flex-1 flex flex-col min-h-screen min-w-0">
+          <header className="h-14 flex items-center justify-between px-4 border-b border-border/50 shrink-0">
             <SidebarTrigger className="text-muted-foreground hover:text-foreground">
               <Menu className="w-5 h-5" />
             </SidebarTrigger>
-            <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-primary animate-pulse-glow" />
-            </Button>
+            <NotificationPanel />
           </header>
-          <main className="flex-1 overflow-auto p-6">
+          <main className="flex-1 overflow-auto p-4">
             {children}
           </main>
         </div>
