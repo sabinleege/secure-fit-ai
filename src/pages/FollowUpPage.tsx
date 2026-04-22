@@ -1,5 +1,8 @@
 import { motion } from "framer-motion";
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import { Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import {
   ClipboardCheck,
   Video,
@@ -70,15 +73,36 @@ export default function FollowUpPage() {
 
   const completedCount = tasks.filter((t) => t.done).length;
 
-  const handleSubmit = () => {
+  const [aiResponse, setAiResponse] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
     if (!feedback.trim()) {
       toast.error("Please add some feedback before submitting");
       return;
     }
-    toast.success("Follow-up submitted! AI is analyzing your report.");
-    setFeedback("");
-    setPainLevel([3]);
-    setFatigueLevel([5]);
+    setSubmitting(true);
+    setAiResponse("");
+    try {
+      const { data: res, error } = await supabase.functions.invoke("ai-analyze", {
+        body: {
+          kind: "followup",
+          payload: { pain: painLevel[0], fatigue: fatigueLevel[0], feedback },
+          context: { weight: data.weight, recoveryScore: data.recoveryScore, fitnessScore: data.fitnessScore },
+        },
+      });
+      if (error) throw error;
+      if ((res as any)?.error) { toast.error((res as any).error); return; }
+      setAiResponse((res as any)?.text || "");
+      toast.success("Follow-up analyzed by AI Coach");
+      setFeedback("");
+      setPainLevel([3]);
+      setFatigueLevel([5]);
+    } catch (e) {
+      toast.error("AI analysis failed");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (

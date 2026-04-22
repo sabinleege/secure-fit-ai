@@ -264,11 +264,23 @@ export default function NutritionPage() {
                 rows={3}
               />
               <div className="flex gap-2 mt-3">
-                <Button size="sm" className="gradient-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity flex-1 text-xs">
-                  <Sparkles className="w-3 h-3 mr-1" /> Analyze
+                <Button size="sm" onClick={analyzeMeal} disabled={analyzing} className="gradient-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity flex-1 text-xs">
+                  {analyzing ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Sparkles className="w-3 h-3 mr-1" />}
+                  {analyzing ? "Analyzing…" : "Analyze"}
                 </Button>
                 <FileUploadButton icon={Camera} label="Photo" accept="image/*" className="text-xs" />
               </div>
+              {analysis && (
+                <div className="mt-3 p-3 rounded-xl bg-primary/5 border border-primary/10">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Sparkles className="w-3 h-3 text-primary" />
+                    <span className="text-[10px] font-semibold text-primary">AI Analysis</span>
+                  </div>
+                  <div className="prose prose-xs max-w-none text-xs [&_*]:text-foreground prose-p:my-1 prose-ul:my-1">
+                    <ReactMarkdown>{analysis}</ReactMarkdown>
+                  </div>
+                </div>
+              )}
             </div>
           </TabsContent>
         </Tabs>
