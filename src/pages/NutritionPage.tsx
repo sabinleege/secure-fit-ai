@@ -1,5 +1,8 @@
 import { motion } from "framer-motion";
-import { useState, useRef } from "react";
+import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import { Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Apple,
   Camera,
@@ -78,7 +81,31 @@ function MacroRing({ macro }: { macro: MacroData }) {
 
 export default function NutritionPage() {
   const [mealNote, setMealNote] = useState("");
+  const [analysis, setAnalysis] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
   const { data, addWaterGlass, removeWaterGlass } = useAppData();
+
+  const analyzeMeal = async () => {
+    if (!mealNote.trim()) { toast.error("Describe the meal first"); return; }
+    setAnalyzing(true);
+    setAnalysis("");
+    try {
+      const { data: res, error } = await supabase.functions.invoke("ai-analyze", {
+        body: {
+          kind: "nutrition",
+          payload: { meal: mealNote },
+          context: { weight: data.weight, height: data.height, bodyFat: data.bodyFat, dailyCaloriesTarget: data.dailyCaloriesTarget },
+        },
+      });
+      if (error) throw error;
+      if ((res as any)?.error) { toast.error((res as any).error); return; }
+      setAnalysis((res as any)?.text || "No response");
+    } catch (e) {
+      toast.error("AI analysis failed");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   const today = new Date();
   const dayName = today.toLocaleDateString("en-US", { weekday: "long" });
@@ -237,11 +264,23 @@ export default function NutritionPage() {
                 rows={3}
               />
               <div className="flex gap-2 mt-3">
-                <Button size="sm" className="gradient-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity flex-1 text-xs">
-                  <Sparkles className="w-3 h-3 mr-1" /> Analyze
+                <Button size="sm" onClick={analyzeMeal} disabled={analyzing} className="gradient-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity flex-1 text-xs">
+                  {analyzing ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Sparkles className="w-3 h-3 mr-1" />}
+                  {analyzing ? "Analyzing…" : "Analyze"}
                 </Button>
                 <FileUploadButton icon={Camera} label="Photo" accept="image/*" className="text-xs" />
               </div>
+              {analysis && (
+                <div className="mt-3 p-3 rounded-xl bg-primary/5 border border-primary/10">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Sparkles className="w-3 h-3 text-primary" />
+                    <span className="text-[10px] font-semibold text-primary">AI Analysis</span>
+                  </div>
+                  <div className="prose prose-xs max-w-none text-xs [&_*]:text-foreground prose-p:my-1 prose-ul:my-1">
+                    <ReactMarkdown>{analysis}</ReactMarkdown>
+                  </div>
+                </div>
+              )}
             </div>
           </TabsContent>
         </Tabs>
