@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useMemo } from "react";
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from "react";
 
 interface WeightEntry {
   week: string;
@@ -17,6 +17,54 @@ interface Notification {
   time: string;
   read: boolean;
   type: "alert" | "tip" | "reminder" | "success";
+}
+
+export interface PlanExercise {
+  name: string;
+  sets: number;
+  reps: string;
+  rest: string;
+  safetyNote?: string;
+  isRehab?: boolean;
+}
+
+export interface PlanDay {
+  day: string;
+  focus: string;
+  duration: string;
+  calories: string;
+  exercises: PlanExercise[];
+}
+
+export interface WorkoutPlan {
+  summary: string;
+  safetyNote: string;
+  days: PlanDay[];
+  generatedAt: string;
+  basedOn: { weight: number; injuries: string; profession: string; recoveryScore: number };
+}
+
+export interface Injury {
+  area: string;
+  severity: "Mild" | "Moderate" | "Severe";
+  notes: string;
+}
+
+export interface UserProfile {
+  fullName: string;
+  age: number;
+  height: number;
+  weight: number;
+  profession: string;
+  activityLevel: string;
+  chronicDiseases: string;
+  pastSurgeries: string;
+  medications: string;
+  painAreas: string;
+  injuries: Injury[];
+  targetWeight: number;
+  timeline: string;
+  goalDescription: string;
 }
 
 interface AppData {
@@ -46,6 +94,13 @@ interface AppData {
   // Current day
   currentDay: string;
   currentDate: string;
+
+  // Profile (settings that drive AI)
+  profile: UserProfile;
+
+  // AI-generated plan
+  workoutPlan: WorkoutPlan | null;
+  completedExercises: string[]; // keys like "Monday::Wall Push-ups"
 }
 
 interface AppDataContextType {
@@ -60,6 +115,11 @@ interface AppDataContextType {
   markNotificationRead: (id: string) => void;
   clearNotifications: () => void;
   unreadCount: number;
+  updateProfile: (patch: Partial<UserProfile>) => void;
+  addInjury: (i: Injury) => void;
+  removeInjury: (idx: number) => void;
+  setWorkoutPlan: (p: WorkoutPlan | null) => void;
+  toggleExerciseDone: (key: string) => void;
 }
 
 const now = new Date();
@@ -69,15 +129,35 @@ const currentDate = now.toLocaleDateString("en-US", { weekday: "long", month: "s
 
 const defaultNotifications: Notification[] = [
   { id: "1", title: "Recovery Alert", message: "Your recovery score dropped 8%. Consider reducing intensity today.", time: "2 min ago", read: false, type: "alert" },
-  { id: "2", title: "Workout Reminder", message: "Today's Upper Body session is ready. Don't forget to warm up!", time: "1 hour ago", read: false, type: "reminder" },
+  { id: "2", title: "Workout Reminder", message: "Today's session is ready. Don't forget to warm up!", time: "1 hour ago", read: false, type: "reminder" },
   { id: "3", title: "AI Coach Tip", message: "Add 5 min of mobility work before sessions to improve performance.", time: "3 hours ago", read: false, type: "tip" },
   { id: "4", title: "Goal Progress", message: "You're 60% toward your weekly calorie burn goal. Keep it up!", time: "5 hours ago", read: false, type: "success" },
   { id: "5", title: "Hydration Reminder", message: "You've only had 3 glasses of water today. Try to reach 8.", time: "6 hours ago", read: false, type: "reminder" },
 ];
 
+const defaultProfile: UserProfile = {
+  fullName: "Ahmed Hassan",
+  age: 28,
+  height: 178,
+  weight: 81.8,
+  profession: "office",
+  activityLevel: "moderate",
+  chronicDiseases: "",
+  pastSurgeries: "",
+  medications: "",
+  painAreas: "",
+  injuries: [
+    { area: "Right Shoulder", severity: "Moderate", notes: "Rotator cuff strain — avoid overhead press" },
+    { area: "Lower Back", severity: "Mild", notes: "Occasional discomfort after prolonged sitting" },
+  ],
+  targetWeight: 75,
+  timeline: "6months",
+  goalDescription: "Lose body fat, improve posture from desk work, and build lean muscle safely around my shoulder injury.",
+};
+
 const initialData: AppData = {
   weight: 81.8,
-  height: 175,
+  height: 178,
   age: 28,
   bodyFat: 18,
   fitnessScore: 72,
@@ -108,7 +188,12 @@ const initialData: AppData = {
   notifications: defaultNotifications,
   currentDay,
   currentDate,
+  profile: defaultProfile,
+  workoutPlan: null,
+  completedExercises: [],
 };
+
+const STORAGE_KEY = "fitbuddy_app_data_v2";
 
 const AppDataContext = createContext<AppDataContextType | null>(null);
 
@@ -119,17 +204,28 @@ export function useAppData() {
 }
 
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
-  const [data, setData] = useState<AppData>(initialData);
+  const [data, setData] = useState<AppData>(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        return { ...initialData, ...saved, currentDay, currentDate };
+      }
+    } catch {}
+    return initialData;
+  });
 
-  const bmi = useMemo(() => {
-    const h = data.height / 100;
-    return (data.weight / (h * h)).toFixed(1);
-  }, [data.weight, data.height]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch {}
+  }, [data]);
 
   const updateWeight = useCallback((w: number) => {
     setData((prev) => ({
       ...prev,
       weight: w,
+      profile: { ...prev.profile, weight: w },
       weightHistory: [...prev.weightHistory.slice(-5), { week: `W${prev.weightHistory.length + 1}`, weight: w }],
     }));
   }, []);
@@ -150,6 +246,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setData((p) => ({
       ...p,
       weight: entry.weight,
+      profile: { ...p.profile, weight: entry.weight },
       weightHistory: [...p.weightHistory, entry],
     }));
   }, []);
@@ -167,6 +264,40 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const unreadCount = useMemo(() => data.notifications.filter((n) => !n.read).length, [data.notifications]);
 
+  const updateProfile = useCallback((patch: Partial<UserProfile>) => {
+    setData((p) => {
+      const profile = { ...p.profile, ...patch };
+      return {
+        ...p,
+        profile,
+        weight: patch.weight ?? p.weight,
+        height: patch.height ?? p.height,
+        age: patch.age ?? p.age,
+      };
+    });
+  }, []);
+
+  const addInjury = useCallback((injury: Injury) => {
+    setData((p) => ({ ...p, profile: { ...p.profile, injuries: [...p.profile.injuries, injury] } }));
+  }, []);
+
+  const removeInjury = useCallback((idx: number) => {
+    setData((p) => ({ ...p, profile: { ...p.profile, injuries: p.profile.injuries.filter((_, i) => i !== idx) } }));
+  }, []);
+
+  const setWorkoutPlan = useCallback((plan: WorkoutPlan | null) => {
+    setData((p) => ({ ...p, workoutPlan: plan, completedExercises: [] }));
+  }, []);
+
+  const toggleExerciseDone = useCallback((key: string) => {
+    setData((p) => ({
+      ...p,
+      completedExercises: p.completedExercises.includes(key)
+        ? p.completedExercises.filter((k) => k !== key)
+        : [...p.completedExercises, key],
+    }));
+  }, []);
+
   return (
     <AppDataContext.Provider
       value={{
@@ -181,6 +312,11 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         markNotificationRead,
         clearNotifications,
         unreadCount,
+        updateProfile,
+        addInjury,
+        removeInjury,
+        setWorkoutPlan,
+        toggleExerciseDone,
       }}
     >
       {children}
