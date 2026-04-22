@@ -1,4 +1,7 @@
-import { corsHeaders } from "@supabase/supabase-js/cors";
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
 // Non-streaming structured analyzer for nutrition meals & follow-up reports.
 // Body: { kind: "nutrition" | "followup", payload: {...}, context?: {...} }
