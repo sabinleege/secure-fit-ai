@@ -3,8 +3,57 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Non-streaming structured analyzer for nutrition meals & follow-up reports.
-// Body: { kind: "nutrition" | "followup", payload: {...}, context?: {...} }
+// Non-streaming structured analyzer for nutrition meals, follow-up reports, and workout plans.
+// Body: { kind: "nutrition" | "followup" | "workout", payload: {...}, context?: {...} }
+
+const WORKOUT_TOOL = {
+  type: "function",
+  function: {
+    name: "build_weekly_plan",
+    description: "Return a fully personalized 7-day workout plan tailored to the user's profile, injuries, goals and recovery.",
+    parameters: {
+      type: "object",
+      properties: {
+        summary: { type: "string", description: "1-2 sentence overview of the plan rationale, referencing the user's profile/injuries." },
+        safetyNote: { type: "string", description: "Critical safety adjustment based on injuries or medical conditions." },
+        days: {
+          type: "array",
+          minItems: 7,
+          maxItems: 7,
+          items: {
+            type: "object",
+            properties: {
+              day: { type: "string", enum: ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"] },
+              focus: { type: "string" },
+              duration: { type: "string", description: "e.g. '40 min'" },
+              calories: { type: "string", description: "e.g. '~320 cal'" },
+              exercises: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    sets: { type: "number" },
+                    reps: { type: "string", description: "e.g. '12' or '30s hold'" },
+                    rest: { type: "string", description: "e.g. '60s' or '-'" },
+                    safetyNote: { type: "string" },
+                    isRehab: { type: "boolean" },
+                  },
+                  required: ["name", "sets", "reps", "rest"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["day", "focus", "duration", "calories", "exercises"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["summary", "safetyNote", "days"],
+      additionalProperties: false,
+    },
+  },
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -14,19 +63,52 @@ Deno.serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-    let system = "";
-    let userPrompt = "";
+    let body: any;
 
     if (kind === "nutrition") {
-      system = `You are Fit Buddy AI's nutrition analyst. Give brief, actionable feedback on a user's meal based on their profile and goals. Always consider medical conditions. Keep it under 120 words. Use markdown.`;
-      userPrompt = `User context: ${JSON.stringify(context || {})}
+      body = {
+        model: "google/gemini-2.5-flash",
+        messages: [
+          { role: "system", content: `You are Fit Buddy AI's nutrition analyst. Give brief, actionable feedback on a user's meal based on their profile and goals. Always consider medical conditions. Keep it under 120 words. Use markdown.` },
+          { role: "user", content: `User context: ${JSON.stringify(context || {})}
 Meal description: ${payload?.meal || "(none)"}
-Provide: 1) Quality rating (Poor/Fair/Good/Excellent), 2) Estimated macros, 3) One improvement tip.`;
+Provide: 1) Quality rating (Poor/Fair/Good/Excellent), 2) Estimated macros, 3) One improvement tip.` },
+        ],
+      };
     } else if (kind === "followup") {
-      system = `You are Fit Buddy AI's recovery coach. Analyze a workout follow-up report. Be safety-first: if pain >= 6, advise rest and medical check.`;
-      userPrompt = `User context: ${JSON.stringify(context || {})}
+      body = {
+        model: "google/gemini-2.5-flash",
+        messages: [
+          { role: "system", content: `You are Fit Buddy AI's recovery coach. Analyze a workout follow-up report. Be safety-first: if pain >= 6, advise rest and medical check.` },
+          { role: "user", content: `User context: ${JSON.stringify(context || {})}
 Report: pain ${payload?.pain}/10, fatigue ${payload?.fatigue}/10. Notes: ${payload?.feedback}
-Return: 1) Recovery score 0–100, 2) Adjustment for next session, 3) Any safety alert.`;
+Return: 1) Recovery score 0–100, 2) Adjustment for next session, 3) Any safety alert.` },
+        ],
+      };
+    } else if (kind === "workout") {
+      body = {
+        model: "google/gemini-2.5-flash",
+        messages: [
+          {
+            role: "system",
+            content: `You are Fit Buddy AI's elite personal trainer & physiotherapist. Build a SAFE, personalized 7-day plan.
+RULES:
+- Strictly avoid movements that aggravate listed injuries (suggest rehab/alternatives instead).
+- Match intensity to recoveryScore (low <60 = mostly recovery; 60-80 = moderate; >80 = full intensity).
+- Consider profession (e.g., office worker → more posture/mobility; soldier/athlete → higher volume).
+- Include at least 1 active recovery / rest day.
+- Each day must have 3-6 exercises (rest days can have 1-2 mobility items).
+- Use realistic kcal estimates and durations.
+- Always call the build_weekly_plan tool. Never reply with plain text.`,
+          },
+          {
+            role: "user",
+            content: `Build my weekly plan. Full profile:\n${JSON.stringify(payload || {}, null, 2)}\nCurrent metrics:\n${JSON.stringify(context || {}, null, 2)}`,
+          },
+        ],
+        tools: [WORKOUT_TOOL],
+        tool_choice: { type: "function", function: { name: "build_weekly_plan" } },
+      };
     } else {
       return new Response(JSON.stringify({ error: "Unknown kind" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -39,13 +121,7 @@ Return: 1) Recovery score 0–100, 2) Adjustment for next session, 3) Any safety
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: userPrompt },
-        ],
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -67,6 +143,27 @@ Return: 1) Recovery score 0–100, 2) Adjustment for next session, 3) Any safety
     }
 
     const data = await response.json();
+
+    if (kind === "workout") {
+      const call = data?.choices?.[0]?.message?.tool_calls?.[0];
+      const argsStr = call?.function?.arguments;
+      if (!argsStr) {
+        console.error("No tool call returned", JSON.stringify(data).slice(0, 500));
+        return new Response(JSON.stringify({ error: "AI did not return a structured plan" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      let plan: any;
+      try { plan = JSON.parse(argsStr); } catch (e) {
+        return new Response(JSON.stringify({ error: "Failed to parse plan" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ plan }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const text = data?.choices?.[0]?.message?.content ?? "";
     return new Response(JSON.stringify({ text }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
