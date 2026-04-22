@@ -1,5 +1,8 @@
 import { motion } from "framer-motion";
-import { useState, useRef } from "react";
+import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import { Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Apple,
   Camera,
@@ -78,7 +81,31 @@ function MacroRing({ macro }: { macro: MacroData }) {
 
 export default function NutritionPage() {
   const [mealNote, setMealNote] = useState("");
+  const [analysis, setAnalysis] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
   const { data, addWaterGlass, removeWaterGlass } = useAppData();
+
+  const analyzeMeal = async () => {
+    if (!mealNote.trim()) { toast.error("Describe the meal first"); return; }
+    setAnalyzing(true);
+    setAnalysis("");
+    try {
+      const { data: res, error } = await supabase.functions.invoke("ai-analyze", {
+        body: {
+          kind: "nutrition",
+          payload: { meal: mealNote },
+          context: { weight: data.weight, height: data.height, bodyFat: data.bodyFat, dailyCaloriesTarget: data.dailyCaloriesTarget },
+        },
+      });
+      if (error) throw error;
+      if ((res as any)?.error) { toast.error((res as any).error); return; }
+      setAnalysis((res as any)?.text || "No response");
+    } catch (e) {
+      toast.error("AI analysis failed");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   const today = new Date();
   const dayName = today.toLocaleDateString("en-US", { weekday: "long" });
