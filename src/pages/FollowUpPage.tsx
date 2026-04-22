@@ -199,10 +199,24 @@ export default function FollowUpPage() {
 
               <Button
                 onClick={handleSubmit}
+                disabled={submitting}
                 className="w-full mt-3 gradient-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity text-xs"
               >
-                <Send className="w-3 h-3 mr-1" /> Submit Follow-Up
+                {submitting ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Send className="w-3 h-3 mr-1" />}
+                {submitting ? "Analyzing…" : "Submit Follow-Up"}
               </Button>
+
+              {aiResponse && (
+                <div className="mt-3 p-3 rounded-xl bg-primary/5 border border-primary/10">
+                  <div className="flex items-center gap-1.5 mb-1.5">
+                    <Sparkles className="w-3 h-3 text-primary" />
+                    <span className="text-[10px] font-semibold text-primary">AI Coach Response</span>
+                  </div>
+                  <div className="prose prose-xs max-w-none text-xs [&_*]:text-foreground prose-p:my-1 prose-ul:my-1">
+                    <ReactMarkdown>{aiResponse}</ReactMarkdown>
+                  </div>
+                </div>
+              )}
             </div>
           </TabsContent>
 
