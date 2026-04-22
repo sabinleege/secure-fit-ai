@@ -16,6 +16,8 @@ import {
   Bone,
   FileText,
   Image,
+  X,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +26,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { useAppData, type Injury } from "@/contexts/AppDataContext";
+import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 
 const container = {
   hidden: { opacity: 0 },
@@ -48,18 +53,48 @@ function FormField({ label, icon: Icon, children }: { label: string; icon: any; 
 const inputClass = "bg-muted/30 border-border rounded-xl text-foreground placeholder:text-muted-foreground";
 
 export default function ProfilePage() {
-  const [injuries, setInjuries] = useState([
-    { area: "Right Shoulder", severity: "Moderate", notes: "Rotator cuff strain — avoid overhead press" },
-    { area: "Lower Back", severity: "Mild", notes: "Occasional discomfort after prolonged sitting" },
-  ]);
+  const { data, updateProfile, addInjury, removeInjury, setWorkoutPlan } = useAppData();
+  const navigate = useNavigate();
+  const p = data.profile;
+
+  const [newInjury, setNewInjury] = useState<Injury>({ area: "", severity: "Mild", notes: "" });
+
+  const handleSaveBasic = () => {
+    toast.success("Basic info saved. AI will use this in your next plan.");
+    setWorkoutPlan(null); // invalidate stale plan
+  };
+  const handleSaveMedical = () => {
+    toast.success("Medical data saved. Plans and meal feedback will adapt.");
+    setWorkoutPlan(null);
+  };
+  const handleAddInjury = () => {
+    if (!newInjury.area.trim()) { toast.error("Add an injury area"); return; }
+    addInjury(newInjury);
+    setNewInjury({ area: "", severity: "Mild", notes: "" });
+    setWorkoutPlan(null);
+    toast.success("Injury added. Workout plan will be regenerated.");
+  };
+  const handleSaveGoals = () => {
+    toast.success("Goals saved.");
+    setWorkoutPlan(null);
+  };
 
   return (
     <motion.div variants={container} initial="hidden" animate="show" className="space-y-6 max-w-4xl mx-auto">
-      <motion.div variants={item}>
-        <h1 className="font-display text-2xl font-bold text-foreground flex items-center gap-3">
-          <User className="w-6 h-6 text-primary" /> Health Profile
-        </h1>
-        <p className="text-muted-foreground text-sm mt-1">Your complete health data drives all AI decisions</p>
+      <motion.div variants={item} className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-foreground flex items-center gap-3">
+            <User className="w-6 h-6 text-primary" /> Health Profile
+          </h1>
+          <p className="text-muted-foreground text-sm mt-1">Your data drives every AI decision</p>
+        </div>
+        <Button
+          onClick={() => navigate("/workout")}
+          variant="outline"
+          className="rounded-xl border-primary/40 text-primary"
+        >
+          <Sparkles className="w-4 h-4 mr-2" /> Generate Plan
+        </Button>
       </motion.div>
 
       <motion.div variants={item}>
@@ -77,22 +112,24 @@ export default function ProfilePage() {
               <h3 className="font-display font-semibold text-foreground text-sm">Basic Information</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <FormField label="Full Name" icon={User}>
-                  <Input placeholder="John Doe" className={inputClass} defaultValue="Ahmed Hassan" />
+                  <Input className={inputClass} value={p.fullName}
+                    onChange={(e) => updateProfile({ fullName: e.target.value })} />
                 </FormField>
                 <FormField label="Age" icon={Calendar}>
-                  <Input type="number" placeholder="25" className={inputClass} defaultValue="28" />
+                  <Input type="number" className={inputClass} value={p.age}
+                    onChange={(e) => updateProfile({ age: Number(e.target.value) })} />
                 </FormField>
                 <FormField label="Height (cm)" icon={Ruler}>
-                  <Input type="number" placeholder="175" className={inputClass} defaultValue="178" />
+                  <Input type="number" className={inputClass} value={p.height}
+                    onChange={(e) => updateProfile({ height: Number(e.target.value) })} />
                 </FormField>
                 <FormField label="Weight (kg)" icon={Scale}>
-                  <Input type="number" placeholder="80" className={inputClass} defaultValue="81.8" />
+                  <Input type="number" step="0.1" className={inputClass} value={p.weight}
+                    onChange={(e) => updateProfile({ weight: Number(e.target.value) })} />
                 </FormField>
                 <FormField label="Profession" icon={Briefcase}>
-                  <Select defaultValue="office">
-                    <SelectTrigger className={inputClass}>
-                      <SelectValue />
-                    </SelectTrigger>
+                  <Select value={p.profession} onValueChange={(v) => updateProfile({ profession: v })}>
+                    <SelectTrigger className={inputClass}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="office">Office Worker</SelectItem>
                       <SelectItem value="athlete">Athlete</SelectItem>
@@ -104,10 +141,8 @@ export default function ProfilePage() {
                   </Select>
                 </FormField>
                 <FormField label="Activity Level" icon={Activity}>
-                  <Select defaultValue="moderate">
-                    <SelectTrigger className={inputClass}>
-                      <SelectValue />
-                    </SelectTrigger>
+                  <Select value={p.activityLevel} onValueChange={(v) => updateProfile({ activityLevel: v })}>
+                    <SelectTrigger className={inputClass}><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="sedentary">Sedentary</SelectItem>
                       <SelectItem value="light">Lightly Active</SelectItem>
@@ -118,7 +153,7 @@ export default function ProfilePage() {
                   </Select>
                 </FormField>
               </div>
-              <Button className="gradient-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity mt-2">
+              <Button onClick={handleSaveBasic} className="gradient-primary text-primary-foreground rounded-xl mt-2">
                 <Save className="w-4 h-4 mr-2" /> Save Basic Info
               </Button>
             </div>
@@ -131,45 +166,29 @@ export default function ProfilePage() {
                 <Heart className="w-4 h-4 text-destructive" /> Medical History
               </h3>
               <FormField label="Chronic Diseases" icon={Heart}>
-                <Textarea
-                  placeholder="e.g., Diabetes Type 2, Hypertension, Asthma..."
-                  className={inputClass}
-                  rows={2}
-                />
+                <Textarea placeholder="e.g., Diabetes Type 2, Hypertension, Asthma..." className={inputClass} rows={2}
+                  value={p.chronicDiseases} onChange={(e) => updateProfile({ chronicDiseases: e.target.value })} />
               </FormField>
               <FormField label="Past Surgeries" icon={Bone}>
-                <Textarea
-                  placeholder="e.g., ACL reconstruction (2023), Appendectomy (2020)..."
-                  className={inputClass}
-                  rows={2}
-                />
+                <Textarea placeholder="e.g., ACL reconstruction (2023)..." className={inputClass} rows={2}
+                  value={p.pastSurgeries} onChange={(e) => updateProfile({ pastSurgeries: e.target.value })} />
               </FormField>
               <FormField label="Current Medications" icon={Pill}>
-                <Textarea
-                  placeholder="List any medications you're currently taking (optional)..."
-                  className={inputClass}
-                  rows={2}
-                />
+                <Textarea placeholder="List current medications (optional)..." className={inputClass} rows={2}
+                  value={p.medications} onChange={(e) => updateProfile({ medications: e.target.value })} />
               </FormField>
               <FormField label="Pain Areas" icon={AlertTriangle}>
-                <Textarea
-                  placeholder="Describe any areas of recurring pain or discomfort..."
-                  className={inputClass}
-                  rows={2}
-                />
+                <Textarea placeholder="Describe areas of recurring pain..." className={inputClass} rows={2}
+                  value={p.painAreas} onChange={(e) => updateProfile({ painAreas: e.target.value })} />
               </FormField>
 
-              {/* Document Uploads */}
               <div className="space-y-3 pt-2">
                 <h4 className="text-sm font-medium text-foreground flex items-center gap-2">
                   <FileText className="w-3.5 h-3.5 text-primary" /> Medical Documents
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   {["X-Ray / CT Scans", "MRI Reports", "Medical Reports"].map((label) => (
-                    <div
-                      key={label}
-                      className="border border-dashed border-border rounded-xl p-4 text-center hover:bg-muted/20 transition-colors cursor-pointer"
-                    >
+                    <div key={label} className="border border-dashed border-border rounded-xl p-4 text-center hover:bg-muted/20 transition-colors cursor-pointer">
                       <Upload className="w-5 h-5 text-muted-foreground mx-auto mb-2" />
                       <p className="text-xs text-muted-foreground">{label}</p>
                     </div>
@@ -177,7 +196,7 @@ export default function ProfilePage() {
                 </div>
               </div>
 
-              <Button className="gradient-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity mt-2">
+              <Button onClick={handleSaveMedical} className="gradient-primary text-primary-foreground rounded-xl mt-2">
                 <Save className="w-4 h-4 mr-2" /> Save Medical Data
               </Button>
             </div>
@@ -191,26 +210,26 @@ export default function ProfilePage() {
                   <AlertTriangle className="w-4 h-4 text-warning" /> Injury Details
                 </h3>
                 <Badge variant="outline" className="text-[10px] border-warning/40 text-warning">
-                  {injuries.length} recorded
+                  {p.injuries.length} recorded
                 </Badge>
               </div>
 
-              {injuries.map((injury, i) => (
-                <div key={i} className="p-4 rounded-xl bg-warning/5 border border-warning/15 space-y-2">
-                  <div className="flex items-center justify-between">
+              {p.injuries.map((injury, i) => (
+                <div key={i} className="p-4 rounded-xl bg-warning/5 border border-warning/15 space-y-2 relative">
+                  <button
+                    onClick={() => { removeInjury(i); setWorkoutPlan(null); toast.success("Injury removed"); }}
+                    className="absolute top-2 right-2 p-1 rounded-lg hover:bg-muted/50"
+                    aria-label="Remove"
+                  >
+                    <X className="w-3.5 h-3.5 text-muted-foreground" />
+                  </button>
+                  <div className="flex items-center justify-between pr-6">
                     <span className="text-sm font-medium text-foreground">{injury.area}</span>
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] ${
-                        injury.severity === "Severe"
-                          ? "border-destructive/40 text-destructive"
-                          : injury.severity === "Moderate"
-                          ? "border-warning/40 text-warning"
-                          : "border-primary/40 text-primary"
-                      }`}
-                    >
-                      {injury.severity}
-                    </Badge>
+                    <Badge variant="outline" className={`text-[10px] ${
+                      injury.severity === "Severe" ? "border-destructive/40 text-destructive"
+                      : injury.severity === "Moderate" ? "border-warning/40 text-warning"
+                      : "border-primary/40 text-primary"
+                    }`}>{injury.severity}</Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">{injury.notes}</p>
                 </div>
@@ -219,24 +238,27 @@ export default function ProfilePage() {
               <div className="space-y-3 pt-2">
                 <h4 className="text-sm text-foreground">Add New Injury</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Input placeholder="Injury area (e.g., Left Knee)" className={inputClass} />
-                  <Select>
-                    <SelectTrigger className={inputClass}>
-                      <SelectValue placeholder="Severity" />
-                    </SelectTrigger>
+                  <Input placeholder="Injury area (e.g., Left Knee)" className={inputClass}
+                    value={newInjury.area}
+                    onChange={(e) => setNewInjury({ ...newInjury, area: e.target.value })} />
+                  <Select value={newInjury.severity} onValueChange={(v) => setNewInjury({ ...newInjury, severity: v as any })}>
+                    <SelectTrigger className={inputClass}><SelectValue placeholder="Severity" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="mild">Mild</SelectItem>
-                      <SelectItem value="moderate">Moderate</SelectItem>
-                      <SelectItem value="severe">Severe</SelectItem>
+                      <SelectItem value="Mild">Mild</SelectItem>
+                      <SelectItem value="Moderate">Moderate</SelectItem>
+                      <SelectItem value="Severe">Severe</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <Textarea placeholder="Describe the injury, how it happened, current limitations..." className={inputClass} rows={2} />
-                <div className="flex gap-3">
-                  <Button variant="outline" className="rounded-xl border-border text-foreground">
+                <Textarea placeholder="Describe the injury, how it happened, current limitations..." className={inputClass} rows={2}
+                  value={newInjury.notes}
+                  onChange={(e) => setNewInjury({ ...newInjury, notes: e.target.value })} />
+                <div className="flex gap-3 flex-wrap">
+                  <Button variant="outline" className="rounded-xl border-border text-foreground"
+                    onClick={() => toast.info("Image uploads coming soon")}>
                     <Image className="w-4 h-4 mr-2" /> Upload Injury Photo
                   </Button>
-                  <Button className="gradient-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity">
+                  <Button onClick={handleAddInjury} className="gradient-primary text-primary-foreground rounded-xl">
                     Add Injury
                   </Button>
                 </div>
@@ -251,13 +273,12 @@ export default function ProfilePage() {
                 <Target className="w-4 h-4 text-primary" /> Fitness Goals
               </h3>
               <FormField label="Target Weight (kg)" icon={Scale}>
-                <Input type="number" placeholder="75" className={inputClass} defaultValue="75" />
+                <Input type="number" className={inputClass} value={p.targetWeight}
+                  onChange={(e) => updateProfile({ targetWeight: Number(e.target.value) })} />
               </FormField>
               <FormField label="Timeline" icon={Calendar}>
-                <Select defaultValue="6months">
-                  <SelectTrigger className={inputClass}>
-                    <SelectValue />
-                  </SelectTrigger>
+                <Select value={p.timeline} onValueChange={(v) => updateProfile({ timeline: v })}>
+                  <SelectTrigger className={inputClass}><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="3months">3 Months</SelectItem>
                     <SelectItem value="6months">6 Months</SelectItem>
@@ -267,36 +288,12 @@ export default function ProfilePage() {
                 </Select>
               </FormField>
               <FormField label="Describe Your Goal" icon={Target}>
-                <Textarea
-                  placeholder="What does your ideal body and health look like? (e.g., 'lose belly fat, improve posture, build lean muscle without aggravating my shoulder injury')"
-                  className={inputClass}
-                  rows={3}
-                  defaultValue="Lose body fat, improve posture from desk work, and build lean muscle safely around my shoulder injury."
-                />
+                <Textarea className={inputClass} rows={3}
+                  value={p.goalDescription}
+                  onChange={(e) => updateProfile({ goalDescription: e.target.value })} />
               </FormField>
 
-              {/* Milestones */}
-              <div className="space-y-2 pt-2">
-                <h4 className="text-sm font-medium text-foreground">AI-Generated Milestones</h4>
-                {[
-                  { week: "Week 4", goal: "Reach 80 kg, establish workout consistency" },
-                  { week: "Week 8", goal: "Reach 78 kg, improve fitness score to 80+" },
-                  { week: "Week 12", goal: "Reach 76 kg, full shoulder mobility" },
-                  { week: "Week 24", goal: "Reach 75 kg target, maintain 90%+ consistency" },
-                ].map((milestone) => (
-                  <div key={milestone.week} className="flex items-center gap-3 py-2 border-b border-border/20 last:border-0">
-                    <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                      <Target className="w-3.5 h-3.5 text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-foreground">{milestone.week}</p>
-                      <p className="text-xs text-muted-foreground">{milestone.goal}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <Button className="gradient-primary text-primary-foreground rounded-xl hover:opacity-90 transition-opacity mt-2">
+              <Button onClick={handleSaveGoals} className="gradient-primary text-primary-foreground rounded-xl mt-2">
                 <Save className="w-4 h-4 mr-2" /> Save Goals
               </Button>
             </div>
