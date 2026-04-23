@@ -1,13 +1,32 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Send, Sparkles, Loader2, Plus, Mic } from "lucide-react";
+import { X, Send, Sparkles, Loader2, Plus, Mic, ImageIcon, Paperclip, Camera } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useAppData } from "@/contexts/AppDataContext";
 import { toast } from "sonner";
 
-type Msg = { role: "user" | "assistant"; content: string };
+type Attachment = {
+  id: string;
+  name: string;
+  mime: string;
+  dataUrl: string; // base64 data URL
+  size: number;
+  kind: "image" | "file";
+};
+
+type Msg = {
+  role: "user" | "assistant";
+  content: string;
+  attachments?: Attachment[];
+};
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-chat`;
 const ANON = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
@@ -19,22 +38,36 @@ const SUGGESTIONS = [
   "My knee hurts after squats",
 ];
 
+const MAX_FILE_MB = 8;
+const MAX_ATTACHMENTS = 4;
+
+const readAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result as string);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+
 export function AICoachChat() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([
-    { role: "assistant", content: "Hi! I'm your **Fit Buddy AI Coach**. Ask me about workouts, recovery, nutrition, or how you're feeling today." },
+    { role: "assistant", content: "Hi! I'm your **Fit Buddy AI Coach**. Ask me about workouts, recovery, nutrition, or how you're feeling today. You can also attach a photo of a meal, posture, or injury for me to analyze." },
   ]);
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { data } = useAppData();
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, loading, attachments.length]);
 
-  // Auto-grow textarea
   useEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
@@ -42,13 +75,79 @@ export function AICoachChat() {
     ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
   }, [input]);
 
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const remaining = MAX_ATTACHMENTS - attachments.length;
+    if (remaining <= 0) {
+      toast.error(`Max ${MAX_ATTACHMENTS} attachments per message.`);
+      return;
+    }
+    const picked = Array.from(files).slice(0, remaining);
+    const next: Attachment[] = [];
+    for (const f of picked) {
+      if (f.size > MAX_FILE_MB * 1024 * 1024) {
+        toast.error(`${f.name} is over ${MAX_FILE_MB}MB.`);
+        continue;
+      }
+      try {
+        const dataUrl = await readAsDataUrl(f);
+        next.push({
+          id: crypto.randomUUID(),
+          name: f.name || "attachment",
+          mime: f.type || "application/octet-stream",
+          dataUrl,
+          size: f.size,
+          kind: f.type.startsWith("image/") ? "image" : "file",
+        });
+      } catch {
+        toast.error(`Could not read ${f.name}`);
+      }
+    }
+    if (next.length) setAttachments((a) => [...a, ...next]);
+  };
+
+  const removeAttachment = (id: string) =>
+    setAttachments((a) => a.filter((x) => x.id !== id));
+
   const send = async (override?: string) => {
     const text = (override ?? input).trim();
-    if (!text || loading) return;
+    if ((!text && attachments.length === 0) || loading) return;
+
+    const localAttachments = attachments;
     setInput("");
-    const next: Msg[] = [...messages, { role: "user", content: text }];
+    setAttachments([]);
+
+    const userMsg: Msg = { role: "user", content: text, attachments: localAttachments };
+    const next: Msg[] = [...messages, userMsg];
     setMessages([...next, { role: "assistant", content: "" }]);
     setLoading(true);
+
+    // Build multimodal content for the API
+    const buildApiMessages = () =>
+      next.map((m) => {
+        const atts = m.attachments ?? [];
+        const imgs = atts.filter((a) => a.kind === "image");
+        const otherFiles = atts.filter((a) => a.kind !== "image");
+        const fileNote =
+          otherFiles.length > 0
+            ? `\n\n[Attached files: ${otherFiles.map((f) => `${f.name} (${f.mime})`).join(", ")}]`
+            : "";
+        const textPart = (m.content || "") + fileNote;
+
+        if (imgs.length === 0) {
+          return { role: m.role, content: textPart };
+        }
+        return {
+          role: m.role,
+          content: [
+            ...(textPart ? [{ type: "text", text: textPart }] : []),
+            ...imgs.map((im) => ({
+              type: "image_url",
+              image_url: { url: im.dataUrl },
+            })),
+          ],
+        };
+      });
 
     try {
       const resp = await fetch(CHAT_URL, {
@@ -58,7 +157,7 @@ export function AICoachChat() {
           Authorization: `Bearer ${ANON}`,
         },
         body: JSON.stringify({
-          messages: next,
+          messages: buildApiMessages(),
           context: {
             weight: data.weight, height: data.height, age: data.age,
             bodyFat: data.bodyFat, fitnessScore: data.fitnessScore,
@@ -117,6 +216,7 @@ export function AICoachChat() {
   };
 
   const isEmpty = messages.length === 1;
+  const canSend = (input.trim().length > 0 || attachments.length > 0) && !loading;
 
   return (
     <>
@@ -137,6 +237,31 @@ export function AICoachChat() {
             transition={{ duration: 0.2 }}
             className="fixed inset-0 z-50 bg-background flex flex-col"
           >
+            {/* Hidden file inputs */}
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }}
+            />
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              hidden
+              onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }}
+            />
+
             {/* Header */}
             <header className="h-14 shrink-0 flex items-center justify-between px-4 border-b border-border/40 bg-background/80 backdrop-blur-xl">
               <div className="flex items-center gap-3">
@@ -168,7 +293,7 @@ export function AICoachChat() {
                     How can I help you today?
                   </h1>
                   <p className="text-sm text-muted-foreground mb-8 max-w-sm">
-                    Ask anything about your training, recovery, pain, or nutrition.
+                    Ask anything about your training, recovery, pain, or nutrition. Attach a photo for visual analysis.
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-md">
                     {SUGGESTIONS.map((s) => (
@@ -196,6 +321,30 @@ export function AICoachChat() {
                           ? "bg-primary text-primary-foreground rounded-br-md"
                           : "bg-muted/50 text-foreground rounded-bl-md"
                       }`}>
+                        {/* Attachment previews */}
+                        {m.attachments && m.attachments.length > 0 && (
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            {m.attachments.map((a) =>
+                              a.kind === "image" ? (
+                                <img
+                                  key={a.id}
+                                  src={a.dataUrl}
+                                  alt={a.name}
+                                  className="w-28 h-28 rounded-xl object-cover border border-border/40"
+                                />
+                              ) : (
+                                <div
+                                  key={a.id}
+                                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-background/30 border border-border/40 text-xs"
+                                >
+                                  <Paperclip className="w-3.5 h-3.5" />
+                                  <span className="truncate max-w-[140px]">{a.name}</span>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        )}
+
                         {m.role === "assistant" ? (
                           <div className="prose prose-sm max-w-none prose-p:my-1.5 prose-headings:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 [&_*]:text-foreground prose-strong:text-foreground prose-code:text-foreground">
                             {m.content ? (
@@ -208,7 +357,7 @@ export function AICoachChat() {
                             )}
                           </div>
                         ) : (
-                          <span className="whitespace-pre-wrap">{m.content}</span>
+                          m.content && <span className="whitespace-pre-wrap">{m.content}</span>
                         )}
                       </div>
                     </div>
@@ -220,15 +369,59 @@ export function AICoachChat() {
             {/* Composer */}
             <div className="shrink-0 border-t border-border/40 bg-background/80 backdrop-blur-xl px-3 pt-3 pb-[max(env(safe-area-inset-bottom),12px)]">
               <div className="max-w-2xl mx-auto">
+                {/* Pending attachment chips */}
+                {attachments.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-2 px-1">
+                    {attachments.map((a) => (
+                      <div
+                        key={a.id}
+                        className="relative group rounded-xl overflow-hidden border border-border/50 bg-muted/40"
+                      >
+                        {a.kind === "image" ? (
+                          <img src={a.dataUrl} alt={a.name} className="w-16 h-16 object-cover" />
+                        ) : (
+                          <div className="w-16 h-16 flex flex-col items-center justify-center text-muted-foreground p-1">
+                            <Paperclip className="w-4 h-4" />
+                            <span className="text-[9px] truncate w-full text-center mt-0.5">{a.name}</span>
+                          </div>
+                        )}
+                        <button
+                          onClick={() => removeAttachment(a.id)}
+                          className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-background/90 border border-border flex items-center justify-center text-foreground hover:bg-destructive hover:text-destructive-foreground transition-colors"
+                          aria-label="Remove attachment"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <div className="flex items-end gap-2 bg-muted/40 border border-border/50 rounded-3xl px-3 py-2 focus-within:border-primary/50 focus-within:bg-muted/60 transition-colors">
-                  <button
-                    type="button"
-                    className="w-9 h-9 shrink-0 rounded-full hover:bg-muted/70 flex items-center justify-center text-muted-foreground"
-                    aria-label="Attach"
-                    onClick={() => toast.info("Attachments coming soon")}
-                  >
-                    <Plus className="w-5 h-5" />
-                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="w-9 h-9 shrink-0 rounded-full hover:bg-muted/70 flex items-center justify-center text-muted-foreground"
+                        aria-label="Attach"
+                        disabled={loading}
+                      >
+                        <Plus className="w-5 h-5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent side="top" align="start" className="w-52">
+                      <DropdownMenuItem onClick={() => cameraInputRef.current?.click()}>
+                        <Camera className="w-4 h-4 mr-2" /> Take photo
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => photoInputRef.current?.click()}>
+                        <ImageIcon className="w-4 h-4 mr-2" /> Photo from library
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+                        <Paperclip className="w-4 h-4 mr-2" /> Attach file
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
                   <Textarea
                     ref={taRef}
                     value={input}
@@ -244,7 +437,7 @@ export function AICoachChat() {
                     className="flex-1 min-h-[40px] max-h-[200px] resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 text-foreground placeholder:text-muted-foreground text-sm py-2 px-1 shadow-none"
                     disabled={loading}
                   />
-                  {input.trim() ? (
+                  {canSend ? (
                     <Button
                       onClick={() => send()}
                       disabled={loading}
