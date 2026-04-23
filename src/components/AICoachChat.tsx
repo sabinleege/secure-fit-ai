@@ -266,6 +266,31 @@ export function AICoachChat() {
     } finally {
       setLoading(false);
     }
+
+    // Second pass: ask the model to emit structured actions and apply them to the app.
+    try {
+      const actionResp = await fetch(CHAT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ANON}` },
+        body: JSON.stringify({
+          mode: "actions",
+          messages: buildApiMessages(),
+          context: {
+            weight: data.weight, height: data.height, age: data.age,
+            bodyFat: data.bodyFat, fitnessScore: data.fitnessScore,
+            recoveryScore: data.recoveryScore, day: data.currentDay,
+            profession: data.profile.profession,
+            injuries: data.profile.injuries.map((i) => `${i.area} (${i.severity})`).join(", "),
+          },
+        }),
+      });
+      if (actionResp.ok) {
+        const j = await actionResp.json();
+        applyActions(j?.actions ?? []);
+      }
+    } catch (err) {
+      console.warn("action pass failed", err);
+    }
   };
 
   const isEmpty = messages.length === 1;
