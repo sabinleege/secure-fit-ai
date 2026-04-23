@@ -101,7 +101,24 @@ export default function NutritionPage() {
       });
       if (error) throw error;
       if ((res as any)?.error) { toast.error((res as any).error); return; }
-      setAnalysis((res as any)?.text || "No response");
+      const text = (res as any)?.text || "No response";
+      setAnalysis(text);
+
+      // Heuristic: derive a calorie estimate from the AI text and log to today's diary
+      const calMatch = text.match(/(\d{2,4})\s*(?:kcal|cal|calories)/i);
+      const proteinMatch = text.match(/(\d{1,3})\s*g\s*(?:of\s*)?protein/i);
+      const hour = new Date().getHours();
+      const slot: MealSlot =
+        hour < 11 ? "Breakfast" : hour < 15 ? "Lunch" : hour < 18 ? "Snack" : "Dinner";
+      addMealEntry({
+        slot,
+        name: mealNote.slice(0, 80),
+        calories: calMatch ? parseInt(calMatch[1]) : 0,
+        protein: proteinMatch ? parseInt(proteinMatch[1]) : 0,
+        source: "ai",
+      });
+      toast.success(`Logged to ${slot}`);
+      setMealNote("");
     } catch (e) {
       toast.error("AI analysis failed");
     } finally {
