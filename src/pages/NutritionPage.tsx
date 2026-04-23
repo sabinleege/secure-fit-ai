@@ -83,7 +83,9 @@ export default function NutritionPage() {
   const [mealNote, setMealNote] = useState("");
   const [analysis, setAnalysis] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
-  const { data, addWaterGlass, removeWaterGlass } = useAppData();
+  const { data, addWaterGlass, removeWaterGlass, addMealEntry, removeMealEntry, todayKey } = useAppData();
+
+  const todayMeals = data.loggedMeals[todayKey] ?? [];
 
   const analyzeMeal = async () => {
     if (!mealNote.trim()) { toast.error("Describe the meal first"); return; }
@@ -111,48 +113,33 @@ export default function NutritionPage() {
   const dayName = today.toLocaleDateString("en-US", { weekday: "long" });
   const dateStr = today.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
+  const totalCals = todayMeals.reduce((s, m) => s + (m.calories || 0), 0);
+  const totalProtein = todayMeals.reduce((s, m) => s + (m.protein || 0), 0);
+  const totalCarbs = todayMeals.reduce((s, m) => s + (m.carbs || 0), 0);
+  const totalFat = todayMeals.reduce((s, m) => s + (m.fat || 0), 0);
+
   const macros: MacroData[] = [
-    { current: 1650, target: 2150, label: "Calories", icon: Flame, color: "text-warning" },
-    { current: 95, target: 130, label: "Protein", icon: Beef, color: "text-primary" },
-    { current: 180, target: 250, label: "Carbs", icon: Wheat, color: "text-secondary" },
-    { current: 52, target: 70, label: "Fat", icon: Droplets, color: "text-success" },
+    { current: totalCals, target: data.dailyCaloriesTarget, label: "Calories", icon: Flame, color: "text-warning" },
+    { current: totalProtein, target: 130, label: "Protein", icon: Beef, color: "text-primary" },
+    { current: totalCarbs, target: 250, label: "Carbs", icon: Wheat, color: "text-secondary" },
+    { current: totalFat, target: 70, label: "Fat", icon: Droplets, color: "text-success" },
   ];
 
   const totalCurrent = macros[0].current;
   const totalTarget = macros[0].target;
-  const dailyPct = Math.round((totalCurrent / totalTarget) * 100);
+  const dailyPct = totalTarget > 0 ? Math.round((totalCurrent / totalTarget) * 100) : 0;
 
-  const meals = [
-    {
-      time: "Breakfast",
-      icon: Coffee,
-      items: [
-        { name: "Oatmeal with Berries", calories: 320, protein: 12 },
-        { name: "Greek Yogurt", calories: 150, protein: 15 },
-      ],
-    },
-    {
-      time: "Lunch",
-      icon: Sun,
-      items: [
-        { name: "Grilled Chicken Salad", calories: 420, protein: 35 },
-        { name: "Whole Wheat Bread", calories: 130, protein: 5 },
-      ],
-    },
-    {
-      time: "Snack",
-      icon: Apple,
-      items: [
-        { name: "Almonds (30g)", calories: 170, protein: 6 },
-        { name: "Banana", calories: 105, protein: 1 },
-      ],
-    },
-    {
-      time: "Dinner",
-      icon: Moon,
-      items: [],
-    },
+  const slotConfig: Array<{ time: "Breakfast" | "Lunch" | "Snack" | "Dinner"; icon: React.ElementType }> = [
+    { time: "Breakfast", icon: Coffee },
+    { time: "Lunch", icon: Sun },
+    { time: "Snack", icon: Apple },
+    { time: "Dinner", icon: Moon },
   ];
+  const meals = slotConfig.map((s) => ({
+    time: s.time,
+    icon: s.icon,
+    items: todayMeals.filter((m) => m.slot === s.time),
+  }));
 
   return (
     <motion.div variants={container} initial="hidden" animate="show" className="space-y-4 max-w-4xl mx-auto">
