@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { useAppData } from "@/contexts/AppDataContext";
+import { useAppData, type MealSlot } from "@/contexts/AppDataContext";
 import { FileUploadButton } from "@/components/FileUploadButton";
 import { toast } from "sonner";
 
