@@ -67,8 +67,21 @@ export interface UserProfile {
   goalDescription: string;
 }
 
+export type MealSlot = "Breakfast" | "Lunch" | "Snack" | "Dinner";
+
+export interface MealItem {
+  id: string;
+  slot: MealSlot;
+  name: string;
+  calories: number;
+  protein: number;
+  carbs?: number;
+  fat?: number;
+  source: "manual" | "ai";
+  loggedAt: string;
+}
+
 interface AppData {
-  // User metrics
   weight: number;
   height: number;
   age: number;
@@ -80,27 +93,24 @@ interface AppData {
   dailyCaloriesTarget: number;
   weeklyCaloriesBurned: number;
 
-  // Water
   waterGlasses: number;
   waterTarget: number;
 
-  // Charts
   weightHistory: WeightEntry[];
   activityData: ActivityEntry[];
 
-  // Notifications
   notifications: Notification[];
 
-  // Current day
   currentDay: string;
   currentDate: string;
 
-  // Profile (settings that drive AI)
   profile: UserProfile;
 
-  // AI-generated plan
   workoutPlan: WorkoutPlan | null;
-  completedExercises: string[]; // keys like "Monday::Wall Push-ups"
+  completedExercises: string[];
+
+  // Per-day meals: key = ISO date (YYYY-MM-DD)
+  loggedMeals: Record<string, MealItem[]>;
 }
 
 interface AppDataContextType {
@@ -111,21 +121,27 @@ interface AppDataContextType {
   updateRecoveryScore: (rs: number) => void;
   addWaterGlass: () => void;
   removeWaterGlass: () => void;
+  setWaterGlasses: (n: number) => void;
   addWeightEntry: (entry: WeightEntry) => void;
   markNotificationRead: (id: string) => void;
   clearNotifications: () => void;
+  addNotification: (n: Omit<Notification, "id" | "time" | "read">) => void;
   unreadCount: number;
   updateProfile: (patch: Partial<UserProfile>) => void;
   addInjury: (i: Injury) => void;
   removeInjury: (idx: number) => void;
   setWorkoutPlan: (p: WorkoutPlan | null) => void;
   toggleExerciseDone: (key: string) => void;
+  addMealEntry: (m: Omit<MealItem, "id" | "loggedAt">) => void;
+  removeMealEntry: (id: string) => void;
+  todayKey: string;
 }
 
 const now = new Date();
 const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const currentDay = dayNames[now.getDay()];
 const currentDate = now.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" });
+const todayKey = now.toISOString().slice(0, 10);
 
 const defaultNotifications: Notification[] = [
   { id: "1", title: "Recovery Alert", message: "Your recovery score dropped 8%. Consider reducing intensity today.", time: "2 min ago", read: false, type: "alert" },
@@ -154,6 +170,15 @@ const defaultProfile: UserProfile = {
   timeline: "6months",
   goalDescription: "Lose body fat, improve posture from desk work, and build lean muscle safely around my shoulder injury.",
 };
+
+const seedMeals: MealItem[] = [
+  { id: "s1", slot: "Breakfast", name: "Oatmeal with Berries", calories: 320, protein: 12, source: "manual", loggedAt: new Date().toISOString() },
+  { id: "s2", slot: "Breakfast", name: "Greek Yogurt", calories: 150, protein: 15, source: "manual", loggedAt: new Date().toISOString() },
+  { id: "s3", slot: "Lunch", name: "Grilled Chicken Salad", calories: 420, protein: 35, source: "manual", loggedAt: new Date().toISOString() },
+  { id: "s4", slot: "Lunch", name: "Whole Wheat Bread", calories: 130, protein: 5, source: "manual", loggedAt: new Date().toISOString() },
+  { id: "s5", slot: "Snack", name: "Almonds (30g)", calories: 170, protein: 6, source: "manual", loggedAt: new Date().toISOString() },
+  { id: "s6", slot: "Snack", name: "Banana", calories: 105, protein: 1, source: "manual", loggedAt: new Date().toISOString() },
+];
 
 const initialData: AppData = {
   weight: 81.8,
@@ -191,9 +216,10 @@ const initialData: AppData = {
   profile: defaultProfile,
   workoutPlan: null,
   completedExercises: [],
+  loggedMeals: { [todayKey]: seedMeals },
 };
 
-const STORAGE_KEY = "fitbuddy_app_data_v2";
+const STORAGE_KEY = "fitbuddy_app_data_v3";
 
 const AppDataContext = createContext<AppDataContextType | null>(null);
 
@@ -242,6 +268,10 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     setData((p) => ({ ...p, waterGlasses: Math.max(p.waterGlasses - 1, 0) }));
   }, []);
 
+  const setWaterGlasses = useCallback((n: number) => {
+    setData((p) => ({ ...p, waterGlasses: Math.max(0, Math.min(12, Math.round(n))) }));
+  }, []);
+
   const addWeightEntry = useCallback((entry: WeightEntry) => {
     setData((p) => ({
       ...p,
@@ -260,6 +290,16 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
 
   const clearNotifications = useCallback(() => {
     setData((p) => ({ ...p, notifications: p.notifications.map((n) => ({ ...n, read: true })) }));
+  }, []);
+
+  const addNotification = useCallback((n: Omit<Notification, "id" | "time" | "read">) => {
+    setData((p) => ({
+      ...p,
+      notifications: [
+        { id: crypto.randomUUID(), time: "just now", read: false, ...n },
+        ...p.notifications,
+      ],
+    }));
   }, []);
 
   const unreadCount = useMemo(() => data.notifications.filter((n) => !n.read).length, [data.notifications]);
@@ -298,6 +338,27 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  const addMealEntry = useCallback((m: Omit<MealItem, "id" | "loggedAt">) => {
+    setData((p) => {
+      const key = todayKey;
+      const day = p.loggedMeals[key] ?? [];
+      const entry: MealItem = {
+        ...m,
+        id: crypto.randomUUID(),
+        loggedAt: new Date().toISOString(),
+      };
+      return { ...p, loggedMeals: { ...p.loggedMeals, [key]: [...day, entry] } };
+    });
+  }, []);
+
+  const removeMealEntry = useCallback((id: string) => {
+    setData((p) => {
+      const key = todayKey;
+      const day = (p.loggedMeals[key] ?? []).filter((m) => m.id !== id);
+      return { ...p, loggedMeals: { ...p.loggedMeals, [key]: day } };
+    });
+  }, []);
+
   return (
     <AppDataContext.Provider
       value={{
@@ -308,15 +369,20 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
         updateRecoveryScore,
         addWaterGlass,
         removeWaterGlass,
+        setWaterGlasses,
         addWeightEntry,
         markNotificationRead,
         clearNotifications,
+        addNotification,
         unreadCount,
         updateProfile,
         addInjury,
         removeInjury,
         setWorkoutPlan,
         toggleExerciseDone,
+        addMealEntry,
+        removeMealEntry,
+        todayKey,
       }}
     >
       {children}
