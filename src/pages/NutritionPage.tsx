@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Loader2 } from "lucide-react";
+import { Loader2, X, Sparkles as SparklesIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Apple,
@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { useAppData } from "@/contexts/AppDataContext";
+import { useAppData, type MealSlot } from "@/contexts/AppDataContext";
 import { FileUploadButton } from "@/components/FileUploadButton";
 import { toast } from "sonner";
 
@@ -83,7 +83,9 @@ export default function NutritionPage() {
   const [mealNote, setMealNote] = useState("");
   const [analysis, setAnalysis] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
-  const { data, addWaterGlass, removeWaterGlass } = useAppData();
+  const { data, addWaterGlass, removeWaterGlass, addMealEntry, removeMealEntry, todayKey } = useAppData();
+
+  const todayMeals = data.loggedMeals[todayKey] ?? [];
 
   const analyzeMeal = async () => {
     if (!mealNote.trim()) { toast.error("Describe the meal first"); return; }
@@ -99,7 +101,24 @@ export default function NutritionPage() {
       });
       if (error) throw error;
       if ((res as any)?.error) { toast.error((res as any).error); return; }
-      setAnalysis((res as any)?.text || "No response");
+      const text = (res as any)?.text || "No response";
+      setAnalysis(text);
+
+      // Heuristic: derive a calorie estimate from the AI text and log to today's diary
+      const calMatch = text.match(/(\d{2,4})\s*(?:kcal|cal|calories)/i);
+      const proteinMatch = text.match(/(\d{1,3})\s*g\s*(?:of\s*)?protein/i);
+      const hour = new Date().getHours();
+      const slot: MealSlot =
+        hour < 11 ? "Breakfast" : hour < 15 ? "Lunch" : hour < 18 ? "Snack" : "Dinner";
+      addMealEntry({
+        slot,
+        name: mealNote.slice(0, 80),
+        calories: calMatch ? parseInt(calMatch[1]) : 0,
+        protein: proteinMatch ? parseInt(proteinMatch[1]) : 0,
+        source: "ai",
+      });
+      toast.success(`Logged to ${slot}`);
+      setMealNote("");
     } catch (e) {
       toast.error("AI analysis failed");
     } finally {
@@ -111,48 +130,33 @@ export default function NutritionPage() {
   const dayName = today.toLocaleDateString("en-US", { weekday: "long" });
   const dateStr = today.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
+  const totalCals = todayMeals.reduce((s, m) => s + (m.calories || 0), 0);
+  const totalProtein = todayMeals.reduce((s, m) => s + (m.protein || 0), 0);
+  const totalCarbs = todayMeals.reduce((s, m) => s + (m.carbs || 0), 0);
+  const totalFat = todayMeals.reduce((s, m) => s + (m.fat || 0), 0);
+
   const macros: MacroData[] = [
-    { current: 1650, target: 2150, label: "Calories", icon: Flame, color: "text-warning" },
-    { current: 95, target: 130, label: "Protein", icon: Beef, color: "text-primary" },
-    { current: 180, target: 250, label: "Carbs", icon: Wheat, color: "text-secondary" },
-    { current: 52, target: 70, label: "Fat", icon: Droplets, color: "text-success" },
+    { current: totalCals, target: data.dailyCaloriesTarget, label: "Calories", icon: Flame, color: "text-warning" },
+    { current: totalProtein, target: 130, label: "Protein", icon: Beef, color: "text-primary" },
+    { current: totalCarbs, target: 250, label: "Carbs", icon: Wheat, color: "text-secondary" },
+    { current: totalFat, target: 70, label: "Fat", icon: Droplets, color: "text-success" },
   ];
 
   const totalCurrent = macros[0].current;
   const totalTarget = macros[0].target;
-  const dailyPct = Math.round((totalCurrent / totalTarget) * 100);
+  const dailyPct = totalTarget > 0 ? Math.round((totalCurrent / totalTarget) * 100) : 0;
 
-  const meals = [
-    {
-      time: "Breakfast",
-      icon: Coffee,
-      items: [
-        { name: "Oatmeal with Berries", calories: 320, protein: 12 },
-        { name: "Greek Yogurt", calories: 150, protein: 15 },
-      ],
-    },
-    {
-      time: "Lunch",
-      icon: Sun,
-      items: [
-        { name: "Grilled Chicken Salad", calories: 420, protein: 35 },
-        { name: "Whole Wheat Bread", calories: 130, protein: 5 },
-      ],
-    },
-    {
-      time: "Snack",
-      icon: Apple,
-      items: [
-        { name: "Almonds (30g)", calories: 170, protein: 6 },
-        { name: "Banana", calories: 105, protein: 1 },
-      ],
-    },
-    {
-      time: "Dinner",
-      icon: Moon,
-      items: [],
-    },
+  const slotConfig: Array<{ time: "Breakfast" | "Lunch" | "Snack" | "Dinner"; icon: React.ElementType }> = [
+    { time: "Breakfast", icon: Coffee },
+    { time: "Lunch", icon: Sun },
+    { time: "Snack", icon: Apple },
+    { time: "Dinner", icon: Moon },
   ];
+  const meals = slotConfig.map((s) => ({
+    time: s.time,
+    icon: s.icon,
+    items: todayMeals.filter((m) => m.slot === s.time),
+  }));
 
   return (
     <motion.div variants={container} initial="hidden" animate="show" className="space-y-4 max-w-4xl mx-auto">
@@ -237,14 +241,33 @@ export default function NutritionPage() {
                   {meal.items.length > 0 ? (
                     <div className="space-y-1">
                       {meal.items.map((food) => (
-                        <div key={food.name} className="flex items-center justify-between py-1 border-b border-border/20 last:border-0">
-                          <span className="text-xs text-foreground">{food.name}</span>
-                          <span className="text-[10px] text-muted-foreground">{food.calories} cal</span>
+                        <div key={food.id} className="group flex items-center justify-between py-1 border-b border-border/20 last:border-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {food.source === "ai" && (
+                              <SparklesIcon className="w-2.5 h-2.5 text-primary shrink-0" />
+                            )}
+                            <span className="text-xs text-foreground truncate">{food.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[10px] text-muted-foreground">{food.calories} cal</span>
+                            <button
+                              onClick={() => removeMealEntry(food.id)}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity w-4 h-4 rounded-full hover:bg-destructive/20 flex items-center justify-center"
+                              aria-label="Remove"
+                            >
+                              <X className="w-2.5 h-2.5 text-muted-foreground" />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <Button variant="outline" size="sm" className="w-full rounded-xl border-dashed border-border text-muted-foreground text-xs">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full rounded-xl border-dashed border-border text-muted-foreground text-xs"
+                      onClick={() => toast.info(`Ask AI Coach to log your ${meal.time.toLowerCase()}`)}
+                    >
                       <Plus className="w-3 h-3 mr-1" /> Add {meal.time}
                     </Button>
                   )}

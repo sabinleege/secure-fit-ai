@@ -10,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useAppData } from "@/contexts/AppDataContext";
+import { useAppData, type WorkoutPlan, type MealSlot } from "@/contexts/AppDataContext";
 import { toast } from "sonner";
 
 type Attachment = {
@@ -62,7 +62,60 @@ export function AICoachChat() {
   const photoInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { data } = useAppData();
+  const { data, setWorkoutPlan, addMealEntry, addWaterGlass, addNotification } = useAppData();
+
+  // Apply structured actions returned by the AI (workout plan, meal log, water, notifications)
+  const applyActions = (actions: Array<{ name: string; args: any }>) => {
+    if (!actions?.length) return;
+    const summaries: string[] = [];
+    for (const a of actions) {
+      try {
+        if (a.name === "generate_workout_plan" && a.args?.days?.length) {
+          const plan: WorkoutPlan = {
+            summary: a.args.summary ?? "AI-generated plan",
+            safetyNote: a.args.safetyNote ?? "",
+            days: a.args.days,
+            generatedAt: new Date().toISOString(),
+            basedOn: {
+              weight: data.profile.weight,
+              injuries: data.profile.injuries.map((i) => i.area).join(", ") || "none",
+              profession: data.profile.profession,
+              recoveryScore: data.recoveryScore,
+            },
+          };
+          setWorkoutPlan(plan);
+          summaries.push("📋 Workout plan saved → Workout page");
+        } else if (a.name === "log_meals" && Array.isArray(a.args?.items)) {
+          for (const it of a.args.items) {
+            addMealEntry({
+              slot: it.slot as MealSlot,
+              name: it.name,
+              calories: Number(it.calories) || 0,
+              protein: Number(it.protein) || 0,
+              carbs: it.carbs != null ? Number(it.carbs) : undefined,
+              fat: it.fat != null ? Number(it.fat) : undefined,
+              source: "ai",
+            });
+          }
+          summaries.push(`🍽 ${a.args.items.length} meal item(s) → Nutrition page`);
+        } else if (a.name === "log_water" && Number(a.args?.glasses) > 0) {
+          const n = Math.min(8, Math.floor(Number(a.args.glasses)));
+          for (let i = 0; i < n; i++) addWaterGlass();
+          summaries.push(`💧 ${n} water glass(es) → Nutrition page`);
+        } else if (a.name === "add_notification" && a.args?.title) {
+          addNotification({
+            title: a.args.title,
+            message: a.args.message ?? "",
+            type: (a.args.type as any) ?? "tip",
+          });
+          summaries.push("🔔 Notification posted");
+        }
+      } catch (err) {
+        console.error("apply action failed", a.name, err);
+      }
+    }
+    if (summaries.length) toast.success(summaries.join(" · "));
+  };
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -212,6 +265,31 @@ export function AICoachChat() {
       setMessages((m) => m.slice(0, -1));
     } finally {
       setLoading(false);
+    }
+
+    // Second pass: ask the model to emit structured actions and apply them to the app.
+    try {
+      const actionResp = await fetch(CHAT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${ANON}` },
+        body: JSON.stringify({
+          mode: "actions",
+          messages: buildApiMessages(),
+          context: {
+            weight: data.weight, height: data.height, age: data.age,
+            bodyFat: data.bodyFat, fitnessScore: data.fitnessScore,
+            recoveryScore: data.recoveryScore, day: data.currentDay,
+            profession: data.profile.profession,
+            injuries: data.profile.injuries.map((i) => `${i.area} (${i.severity})`).join(", "),
+          },
+        }),
+      });
+      if (actionResp.ok) {
+        const j = await actionResp.json();
+        applyActions(j?.actions ?? []);
+      }
+    } catch (err) {
+      console.warn("action pass failed", err);
     }
   };
 
