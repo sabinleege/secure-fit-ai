@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Loader2 } from "lucide-react";
+import { Loader2, X, Sparkles as SparklesIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Apple,
@@ -224,14 +224,33 @@ export default function NutritionPage() {
                   {meal.items.length > 0 ? (
                     <div className="space-y-1">
                       {meal.items.map((food) => (
-                        <div key={food.name} className="flex items-center justify-between py-1 border-b border-border/20 last:border-0">
-                          <span className="text-xs text-foreground">{food.name}</span>
-                          <span className="text-[10px] text-muted-foreground">{food.calories} cal</span>
+                        <div key={food.id} className="group flex items-center justify-between py-1 border-b border-border/20 last:border-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            {food.source === "ai" && (
+                              <SparklesIcon className="w-2.5 h-2.5 text-primary shrink-0" />
+                            )}
+                            <span className="text-xs text-foreground truncate">{food.name}</span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[10px] text-muted-foreground">{food.calories} cal</span>
+                            <button
+                              onClick={() => removeMealEntry(food.id)}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity w-4 h-4 rounded-full hover:bg-destructive/20 flex items-center justify-center"
+                              aria-label="Remove"
+                            >
+                              <X className="w-2.5 h-2.5 text-muted-foreground" />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <Button variant="outline" size="sm" className="w-full rounded-xl border-dashed border-border text-muted-foreground text-xs">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full rounded-xl border-dashed border-border text-muted-foreground text-xs"
+                      onClick={() => toast.info(`Ask AI Coach to log your ${meal.time.toLowerCase()}`)}
+                    >
                       <Plus className="w-3 h-3 mr-1" /> Add {meal.time}
                     </Button>
                   )}
