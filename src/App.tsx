@@ -7,6 +7,8 @@ import { AppDataProvider } from "@/contexts/AppDataContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
+import AuthPage from "./pages/AuthPage";
+import { AuthGuard } from "@/components/AuthGuard";
 import { AppLayout } from "@/components/AppLayout";
 import WorkoutPage from "./pages/WorkoutPage";
 import NutritionPage from "./pages/NutritionPage";
@@ -19,7 +21,7 @@ import SettingsPage from "./pages/SettingsPage";
 const queryClient = new QueryClient();
 
 function LayoutPage({ children }: { children: React.ReactNode }) {
-  return <AppLayout>{children}</AppLayout>;
+  return <AuthGuard><AppLayout>{children}</AppLayout></AuthGuard>;
 }
 
 const App = () => (
@@ -31,7 +33,8 @@ const App = () => (
           <Sonner />
           <BrowserRouter>
             <Routes>
-              <Route path="/" element={<Index />} />
+              <Route path="/" element={<AuthGuard><Index /></AuthGuard>} />
+              <Route path="/auth" element={<AuthPage />} />
               <Route path="/workout" element={<LayoutPage><WorkoutPage /></LayoutPage>} />
               <Route path="/nutrition" element={<LayoutPage><NutritionPage /></LayoutPage>} />
               <Route path="/followup" element={<LayoutPage><FollowUpPage /></LayoutPage>} />
