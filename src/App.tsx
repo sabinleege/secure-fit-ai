@@ -42,7 +42,7 @@ const App = () => (
               <Route path="/profile" element={<LayoutPage><ProfilePage /></LayoutPage>} />
               <Route path="/subscription" element={<LayoutPage><SubscriptionPage /></LayoutPage>} />
               <Route path="/settings" element={<LayoutPage><SettingsPage /></LayoutPage>} />
-              <Route path="*" element={<NotFound />} />
+              <Route path="*" element={<AuthGuard><NotFound /></AuthGuard>} />
             </Routes>
           </BrowserRouter>
         </TooltipProvider>
