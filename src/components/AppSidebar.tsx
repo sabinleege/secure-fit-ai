@@ -9,6 +9,7 @@ import {
   Activity,
   Settings,
   LogOut,
+  LogIn,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -51,6 +52,11 @@ export function AppSidebar() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     toast.success("Signed out");
+    navigate("/auth", { replace: true });
+  };
+
+  const handleGoToAuth = async () => {
+    await supabase.auth.signOut();
     navigate("/auth", { replace: true });
   };
 
@@ -103,7 +109,16 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <div className="mt-auto px-2 pb-4">
-          <SidebarMenu>
+          <SidebarMenu className="gap-1">
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={handleGoToAuth}
+                className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground transition-all"
+              >
+                <LogIn className="w-5 h-5 shrink-0" />
+                {!collapsed && <span>Login / Sign up</span>}
+              </SidebarMenuButton>
+            </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={handleLogout}
