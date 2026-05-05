@@ -1,11 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Activity } from "lucide-react";
 
+// Auto sign-out after this many ms of inactivity (15 min)
+const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [authed, setAuthed] = useState(false);
+  const idleTimer = useRef<number | null>(null);
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
@@ -18,6 +22,27 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     });
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  // Inactivity-based auto sign-out
+  useEffect(() => {
+    if (!authed) return;
+
+    const resetTimer = () => {
+      if (idleTimer.current) window.clearTimeout(idleTimer.current);
+      idleTimer.current = window.setTimeout(() => {
+        supabase.auth.signOut();
+      }, IDLE_TIMEOUT_MS);
+    };
+
+    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
+    events.forEach((e) => window.addEventListener(e, resetTimer, { passive: true }));
+    resetTimer();
+
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, resetTimer));
+      if (idleTimer.current) window.clearTimeout(idleTimer.current);
+    };
+  }, [authed]);
 
   if (loading) {
     return (
