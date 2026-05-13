@@ -318,7 +318,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const persistProfile = useCallback(
     (patch: Record<string, any>) => {
       if (!userId) return;
-      supabase.from("profiles").update(patch).eq("id", userId).then(({ error }) => {
+      supabase.from("profiles").update(patch as any).eq("id", userId).then(({ error }) => {
         if (error) console.error("profile update", error);
       });
     },
