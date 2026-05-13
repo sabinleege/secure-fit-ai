@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from "react";
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface WeightEntry {
   week: string;
@@ -107,14 +108,15 @@ interface AppData {
   profile: UserProfile;
 
   workoutPlan: WorkoutPlan | null;
+  workoutPlanId: string | null;
   completedExercises: string[];
 
-  // Per-day meals: key = ISO date (YYYY-MM-DD)
   loggedMeals: Record<string, MealItem[]>;
 }
 
 interface AppDataContextType {
   data: AppData;
+  isSyncing: boolean;
   updateWeight: (w: number) => void;
   updateBodyFat: (bf: number) => void;
   updateFitnessScore: (fs: number) => void;
@@ -143,45 +145,25 @@ const currentDay = dayNames[now.getDay()];
 const currentDate = now.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" });
 const todayKey = now.toISOString().slice(0, 10);
 
-const defaultNotifications: Notification[] = [
-  { id: "1", title: "Recovery Alert", message: "Your recovery score dropped 8%. Consider reducing intensity today.", time: "2 min ago", read: false, type: "alert" },
-  { id: "2", title: "Workout Reminder", message: "Today's session is ready. Don't forget to warm up!", time: "1 hour ago", read: false, type: "reminder" },
-  { id: "3", title: "AI Coach Tip", message: "Add 5 min of mobility work before sessions to improve performance.", time: "3 hours ago", read: false, type: "tip" },
-  { id: "4", title: "Goal Progress", message: "You're 60% toward your weekly calorie burn goal. Keep it up!", time: "5 hours ago", read: false, type: "success" },
-  { id: "5", title: "Hydration Reminder", message: "You've only had 3 glasses of water today. Try to reach 8.", time: "6 hours ago", read: false, type: "reminder" },
-];
-
 const defaultProfile: UserProfile = {
-  fullName: "Ahmed Hassan",
+  fullName: "",
   age: 28,
   height: 178,
-  weight: 81.8,
+  weight: 80,
   profession: "office",
   activityLevel: "moderate",
   chronicDiseases: "",
   pastSurgeries: "",
   medications: "",
   painAreas: "",
-  injuries: [
-    { area: "Right Shoulder", severity: "Moderate", notes: "Rotator cuff strain — avoid overhead press" },
-    { area: "Lower Back", severity: "Mild", notes: "Occasional discomfort after prolonged sitting" },
-  ],
+  injuries: [],
   targetWeight: 75,
   timeline: "6months",
-  goalDescription: "Lose body fat, improve posture from desk work, and build lean muscle safely around my shoulder injury.",
+  goalDescription: "",
 };
 
-const seedMeals: MealItem[] = [
-  { id: "s1", slot: "Breakfast", name: "Oatmeal with Berries", calories: 320, protein: 12, source: "manual", loggedAt: new Date().toISOString() },
-  { id: "s2", slot: "Breakfast", name: "Greek Yogurt", calories: 150, protein: 15, source: "manual", loggedAt: new Date().toISOString() },
-  { id: "s3", slot: "Lunch", name: "Grilled Chicken Salad", calories: 420, protein: 35, source: "manual", loggedAt: new Date().toISOString() },
-  { id: "s4", slot: "Lunch", name: "Whole Wheat Bread", calories: 130, protein: 5, source: "manual", loggedAt: new Date().toISOString() },
-  { id: "s5", slot: "Snack", name: "Almonds (30g)", calories: 170, protein: 6, source: "manual", loggedAt: new Date().toISOString() },
-  { id: "s6", slot: "Snack", name: "Banana", calories: 105, protein: 1, source: "manual", loggedAt: new Date().toISOString() },
-];
-
 const initialData: AppData = {
-  weight: 81.8,
+  weight: 80,
   height: 178,
   age: 28,
   bodyFat: 18,
@@ -190,36 +172,20 @@ const initialData: AppData = {
   consistencyScore: 87,
   heartRate: 68,
   dailyCaloriesTarget: 2150,
-  weeklyCaloriesBurned: 2840,
-  waterGlasses: 5,
+  weeklyCaloriesBurned: 0,
+  waterGlasses: 0,
   waterTarget: 8,
-  weightHistory: [
-    { week: "W1", weight: 85 },
-    { week: "W2", weight: 84.2 },
-    { week: "W3", weight: 83.5 },
-    { week: "W4", weight: 83.1 },
-    { week: "W5", weight: 82.4 },
-    { week: "W6", weight: 81.8 },
-  ],
-  activityData: [
-    { day: "Mon", calories: 320 },
-    { day: "Tue", calories: 450 },
-    { day: "Wed", calories: 280 },
-    { day: "Thu", calories: 520 },
-    { day: "Fri", calories: 390 },
-    { day: "Sat", calories: 610 },
-    { day: "Sun", calories: 200 },
-  ],
-  notifications: defaultNotifications,
+  weightHistory: [],
+  activityData: [],
+  notifications: [],
   currentDay,
   currentDate,
   profile: defaultProfile,
   workoutPlan: null,
+  workoutPlanId: null,
   completedExercises: [],
-  loggedMeals: { [todayKey]: seedMeals },
+  loggedMeals: { [todayKey]: [] },
 };
-
-const STORAGE_KEY = "fitbuddy_app_data_v3";
 
 const AppDataContext = createContext<AppDataContextType | null>(null);
 
@@ -229,140 +195,410 @@ export function useAppData() {
   return ctx;
 }
 
+// ===== mappers =====
+function profileFromRow(row: any): UserProfile {
+  return {
+    fullName: row.full_name ?? "",
+    age: row.age ?? 28,
+    height: Number(row.height ?? 178),
+    weight: Number(row.weight ?? 80),
+    profession: row.profession ?? "office",
+    activityLevel: row.activity_level ?? "moderate",
+    chronicDiseases: row.chronic_diseases ?? "",
+    pastSurgeries: row.past_surgeries ?? "",
+    medications: row.medications ?? "",
+    painAreas: row.pain_areas ?? "",
+    injuries: Array.isArray(row.injuries) ? row.injuries : [],
+    targetWeight: Number(row.target_weight ?? 75),
+    timeline: row.timeline ?? "6months",
+    goalDescription: row.goal_description ?? "",
+  };
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
 export function AppDataProvider({ children }: { children: React.ReactNode }) {
-  const [data, setData] = useState<AppData>(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const saved = JSON.parse(raw);
-        return { ...initialData, ...saved, currentDay, currentDate };
-      }
-    } catch {}
-    return initialData;
-  });
+  const [data, setData] = useState<AppData>(initialData);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const loadedRef = useRef(false);
 
+  // Track auth session
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    } catch {}
-  }, [data]);
-
-  const updateWeight = useCallback((w: number) => {
-    setData((prev) => ({
-      ...prev,
-      weight: w,
-      profile: { ...prev.profile, weight: w },
-      weightHistory: [...prev.weightHistory.slice(-5), { week: `W${prev.weightHistory.length + 1}`, weight: w }],
-    }));
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUserId(session?.user?.id ?? null);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setUserId(session?.user?.id ?? null);
+      if (!session) {
+        loadedRef.current = false;
+        setData(initialData);
+      }
+    });
+    return () => sub.subscription.unsubscribe();
   }, []);
 
-  const updateBodyFat = useCallback((bf: number) => setData((p) => ({ ...p, bodyFat: bf })), []);
-  const updateFitnessScore = useCallback((fs: number) => setData((p) => ({ ...p, fitnessScore: fs })), []);
-  const updateRecoveryScore = useCallback((rs: number) => setData((p) => ({ ...p, recoveryScore: rs })), []);
+  // Load all user data on sign-in
+  useEffect(() => {
+    if (!userId || loadedRef.current) return;
+    loadedRef.current = true;
+    setIsSyncing(true);
+
+    (async () => {
+      try {
+        const [profileRes, planRes, mealsRes, weightRes, activityRes, notifRes] = await Promise.all([
+          supabase.from("profiles").select("*").eq("id", userId).maybeSingle(),
+          supabase.from("workout_plans").select("*").eq("user_id", userId).eq("is_active", true).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+          supabase.from("meal_logs").select("*").eq("user_id", userId).order("date", { ascending: false }).limit(14),
+          supabase.from("weight_history").select("*").eq("user_id", userId).order("recorded_at", { ascending: true }).limit(20),
+          supabase.from("activity_data").select("*").eq("user_id", userId).order("date", { ascending: true }).limit(7),
+          supabase.from("notifications").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(20),
+        ]);
+
+        const profileRow = profileRes.data;
+        const planRow = planRes.data as any;
+        const mealRows = (mealsRes.data ?? []) as any[];
+        const weightRows = (weightRes.data ?? []) as any[];
+        const activityRows = (activityRes.data ?? []) as any[];
+        const notifRows = (notifRes.data ?? []) as any[];
+
+        const loggedMeals: Record<string, MealItem[]> = {};
+        for (const row of mealRows) {
+          loggedMeals[row.date] = Array.isArray(row.meals) ? row.meals : [];
+        }
+        if (!loggedMeals[todayKey]) loggedMeals[todayKey] = [];
+
+        setData((prev) => ({
+          ...prev,
+          profile: profileRow ? profileFromRow(profileRow) : prev.profile,
+          weight: profileRow ? Number(profileRow.weight) : prev.weight,
+          height: profileRow ? Number(profileRow.height) : prev.height,
+          age: profileRow?.age ?? prev.age,
+          bodyFat: Number(profileRow?.body_fat ?? prev.bodyFat),
+          fitnessScore: profileRow?.fitness_score ?? prev.fitnessScore,
+          recoveryScore: profileRow?.recovery_score ?? prev.recoveryScore,
+          consistencyScore: profileRow?.consistency_score ?? prev.consistencyScore,
+          heartRate: profileRow?.heart_rate ?? prev.heartRate,
+          dailyCaloriesTarget: profileRow?.daily_calories_target ?? prev.dailyCaloriesTarget,
+          waterGlasses: profileRow?.water_glasses ?? 0,
+          waterTarget: profileRow?.water_target ?? 8,
+          workoutPlan: planRow?.plan_data ?? null,
+          workoutPlanId: planRow?.id ?? null,
+          completedExercises: Array.isArray(planRow?.completed_exercises) ? planRow.completed_exercises : [],
+          loggedMeals,
+          weightHistory: weightRows.map((r) => ({ week: r.week_label, weight: Number(r.weight) })),
+          activityData: activityRows.map((r) => ({ day: r.day, calories: r.calories })),
+          weeklyCaloriesBurned: activityRows.reduce((s, r) => s + (r.calories || 0), 0),
+          notifications: notifRows.map((r) => ({
+            id: r.id,
+            title: r.title,
+            message: r.message,
+            type: r.type as Notification["type"],
+            read: r.read,
+            time: timeAgo(r.created_at),
+          })),
+        }));
+      } catch (e) {
+        console.error("Sync error:", e);
+      } finally {
+        setIsSyncing(false);
+      }
+    })();
+  }, [userId]);
+
+  // ===== persistence helpers (fire-and-forget) =====
+  const persistProfile = useCallback(
+    (patch: Record<string, any>) => {
+      if (!userId) return;
+      supabase.from("profiles").update(patch as any).eq("id", userId).then(({ error }) => {
+        if (error) console.error("profile update", error);
+      });
+    },
+    [userId]
+  );
+
+  const persistMealsForDate = useCallback(
+    (dateKey: string, meals: MealItem[]) => {
+      if (!userId) return;
+      const totals = meals.reduce(
+        (a, m) => ({ cals: a.cals + (m.calories || 0), prot: a.prot + (m.protein || 0) }),
+        { cals: 0, prot: 0 }
+      );
+      supabase
+        .from("meal_logs")
+        .upsert(
+          {
+            user_id: userId,
+            date: dateKey,
+            meals: meals as any,
+            total_calories: totals.cals,
+            total_protein: totals.prot,
+          },
+          { onConflict: "user_id,date" }
+        )
+        .then(({ error }) => error && console.error("meal upsert", error));
+    },
+    [userId]
+  );
+
+  // ===== mutations =====
+  const updateWeight = useCallback(
+    (w: number) => {
+      const weekLabel = `W${(data.weightHistory.length || 0) + 1}`;
+      setData((prev) => ({
+        ...prev,
+        weight: w,
+        profile: { ...prev.profile, weight: w },
+        weightHistory: [...prev.weightHistory.slice(-19), { week: weekLabel, weight: w }],
+      }));
+      persistProfile({ weight: w });
+      if (userId) {
+        supabase.from("weight_history").insert({ user_id: userId, week_label: weekLabel, weight: w }).then(({ error }) => error && console.error("weight insert", error));
+      }
+    },
+    [data.weightHistory.length, persistProfile, userId]
+  );
+
+  const updateBodyFat = useCallback(
+    (bf: number) => {
+      setData((p) => ({ ...p, bodyFat: bf }));
+      persistProfile({ body_fat: bf });
+    },
+    [persistProfile]
+  );
+  const updateFitnessScore = useCallback(
+    (fs: number) => {
+      setData((p) => ({ ...p, fitnessScore: fs }));
+      persistProfile({ fitness_score: fs });
+    },
+    [persistProfile]
+  );
+  const updateRecoveryScore = useCallback(
+    (rs: number) => {
+      setData((p) => ({ ...p, recoveryScore: rs }));
+      persistProfile({ recovery_score: rs });
+    },
+    [persistProfile]
+  );
 
   const addWaterGlass = useCallback(() => {
-    setData((p) => ({ ...p, waterGlasses: Math.min(p.waterGlasses + 1, 12) }));
-  }, []);
+    setData((p) => {
+      const next = Math.min(p.waterGlasses + 1, 12);
+      persistProfile({ water_glasses: next });
+      return { ...p, waterGlasses: next };
+    });
+  }, [persistProfile]);
 
   const removeWaterGlass = useCallback(() => {
-    setData((p) => ({ ...p, waterGlasses: Math.max(p.waterGlasses - 1, 0) }));
-  }, []);
+    setData((p) => {
+      const next = Math.max(p.waterGlasses - 1, 0);
+      persistProfile({ water_glasses: next });
+      return { ...p, waterGlasses: next };
+    });
+  }, [persistProfile]);
 
-  const setWaterGlasses = useCallback((n: number) => {
-    setData((p) => ({ ...p, waterGlasses: Math.max(0, Math.min(12, Math.round(n))) }));
-  }, []);
+  const setWaterGlasses = useCallback(
+    (n: number) => {
+      const v = Math.max(0, Math.min(12, Math.round(n)));
+      setData((p) => ({ ...p, waterGlasses: v }));
+      persistProfile({ water_glasses: v });
+    },
+    [persistProfile]
+  );
 
-  const addWeightEntry = useCallback((entry: WeightEntry) => {
-    setData((p) => ({
-      ...p,
-      weight: entry.weight,
-      profile: { ...p.profile, weight: entry.weight },
-      weightHistory: [...p.weightHistory, entry],
-    }));
-  }, []);
+  const addWeightEntry = useCallback(
+    (entry: WeightEntry) => {
+      setData((p) => ({
+        ...p,
+        weight: entry.weight,
+        profile: { ...p.profile, weight: entry.weight },
+        weightHistory: [...p.weightHistory, entry],
+      }));
+      persistProfile({ weight: entry.weight });
+      if (userId) {
+        supabase.from("weight_history").insert({ user_id: userId, week_label: entry.week, weight: entry.weight });
+      }
+    },
+    [persistProfile, userId]
+  );
 
-  const markNotificationRead = useCallback((id: string) => {
-    setData((p) => ({
-      ...p,
-      notifications: p.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)),
-    }));
-  }, []);
+  const markNotificationRead = useCallback(
+    (id: string) => {
+      setData((p) => ({
+        ...p,
+        notifications: p.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)),
+      }));
+      if (userId) supabase.from("notifications").update({ read: true }).eq("id", id);
+    },
+    [userId]
+  );
 
   const clearNotifications = useCallback(() => {
     setData((p) => ({ ...p, notifications: p.notifications.map((n) => ({ ...n, read: true })) }));
-  }, []);
+    if (userId) supabase.from("notifications").update({ read: true }).eq("user_id", userId).eq("read", false);
+  }, [userId]);
 
-  const addNotification = useCallback((n: Omit<Notification, "id" | "time" | "read">) => {
-    setData((p) => ({
-      ...p,
-      notifications: [
-        { id: crypto.randomUUID(), time: "just now", read: false, ...n },
-        ...p.notifications,
-      ],
-    }));
-  }, []);
+  const addNotification = useCallback(
+    (n: Omit<Notification, "id" | "time" | "read">) => {
+      const id = crypto.randomUUID();
+      setData((p) => ({
+        ...p,
+        notifications: [{ id, time: "just now", read: false, ...n }, ...p.notifications],
+      }));
+      if (userId) {
+        supabase.from("notifications").insert({ id, user_id: userId, title: n.title, message: n.message, type: n.type });
+      }
+    },
+    [userId]
+  );
 
   const unreadCount = useMemo(() => data.notifications.filter((n) => !n.read).length, [data.notifications]);
 
-  const updateProfile = useCallback((patch: Partial<UserProfile>) => {
-    setData((p) => {
-      const profile = { ...p.profile, ...patch };
-      return {
-        ...p,
-        profile,
-        weight: patch.weight ?? p.weight,
-        height: patch.height ?? p.height,
-        age: patch.age ?? p.age,
-      };
-    });
-  }, []);
+  const updateProfile = useCallback(
+    (patch: Partial<UserProfile>) => {
+      setData((p) => {
+        const profile = { ...p.profile, ...patch };
+        return {
+          ...p,
+          profile,
+          weight: patch.weight ?? p.weight,
+          height: patch.height ?? p.height,
+          age: patch.age ?? p.age,
+        };
+      });
+      const dbPatch: Record<string, any> = {};
+      if (patch.fullName !== undefined) dbPatch.full_name = patch.fullName;
+      if (patch.age !== undefined) dbPatch.age = patch.age;
+      if (patch.height !== undefined) dbPatch.height = patch.height;
+      if (patch.weight !== undefined) dbPatch.weight = patch.weight;
+      if (patch.profession !== undefined) dbPatch.profession = patch.profession;
+      if (patch.activityLevel !== undefined) dbPatch.activity_level = patch.activityLevel;
+      if (patch.chronicDiseases !== undefined) dbPatch.chronic_diseases = patch.chronicDiseases;
+      if (patch.pastSurgeries !== undefined) dbPatch.past_surgeries = patch.pastSurgeries;
+      if (patch.medications !== undefined) dbPatch.medications = patch.medications;
+      if (patch.painAreas !== undefined) dbPatch.pain_areas = patch.painAreas;
+      if (patch.injuries !== undefined) dbPatch.injuries = patch.injuries;
+      if (patch.targetWeight !== undefined) dbPatch.target_weight = patch.targetWeight;
+      if (patch.timeline !== undefined) dbPatch.timeline = patch.timeline;
+      if (patch.goalDescription !== undefined) dbPatch.goal_description = patch.goalDescription;
+      if (Object.keys(dbPatch).length) persistProfile(dbPatch);
+    },
+    [persistProfile]
+  );
 
-  const addInjury = useCallback((injury: Injury) => {
-    setData((p) => ({ ...p, profile: { ...p.profile, injuries: [...p.profile.injuries, injury] } }));
-  }, []);
+  const addInjury = useCallback(
+    (injury: Injury) => {
+      setData((p) => {
+        const injuries = [...p.profile.injuries, injury];
+        persistProfile({ injuries });
+        return { ...p, profile: { ...p.profile, injuries } };
+      });
+    },
+    [persistProfile]
+  );
 
-  const removeInjury = useCallback((idx: number) => {
-    setData((p) => ({ ...p, profile: { ...p.profile, injuries: p.profile.injuries.filter((_, i) => i !== idx) } }));
-  }, []);
+  const removeInjury = useCallback(
+    (idx: number) => {
+      setData((p) => {
+        const injuries = p.profile.injuries.filter((_, i) => i !== idx);
+        persistProfile({ injuries });
+        return { ...p, profile: { ...p.profile, injuries } };
+      });
+    },
+    [persistProfile]
+  );
 
-  const setWorkoutPlan = useCallback((plan: WorkoutPlan | null) => {
-    setData((p) => ({ ...p, workoutPlan: plan, completedExercises: [] }));
-  }, []);
+  const setWorkoutPlan = useCallback(
+    (plan: WorkoutPlan | null) => {
+      setData((p) => ({ ...p, workoutPlan: plan, completedExercises: [] }));
+      if (!userId) return;
+      if (plan) {
+        const weekStart = new Date();
+        weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
+        // Deactivate prior plans, then insert new active
+        supabase
+          .from("workout_plans")
+          .update({ is_active: false })
+          .eq("user_id", userId)
+          .eq("is_active", true)
+          .then(() => {
+            supabase
+              .from("workout_plans")
+              .insert({
+                user_id: userId,
+                week_start: weekStart.toISOString().slice(0, 10),
+                plan_data: plan as any,
+                completed_exercises: [],
+                is_active: true,
+              })
+              .select("id")
+              .single()
+              .then(({ data: row }) => {
+                if (row) setData((p) => ({ ...p, workoutPlanId: row.id }));
+              });
+          });
+      } else {
+        supabase.from("workout_plans").update({ is_active: false }).eq("user_id", userId).eq("is_active", true);
+        setData((p) => ({ ...p, workoutPlanId: null }));
+      }
+    },
+    [userId]
+  );
 
-  const toggleExerciseDone = useCallback((key: string) => {
-    setData((p) => ({
-      ...p,
-      completedExercises: p.completedExercises.includes(key)
-        ? p.completedExercises.filter((k) => k !== key)
-        : [...p.completedExercises, key],
-    }));
-  }, []);
+  const toggleExerciseDone = useCallback(
+    (key: string) => {
+      setData((p) => {
+        const next = p.completedExercises.includes(key)
+          ? p.completedExercises.filter((k) => k !== key)
+          : [...p.completedExercises, key];
+        if (userId && p.workoutPlanId) {
+          supabase.from("workout_plans").update({ completed_exercises: next }).eq("id", p.workoutPlanId);
+        }
+        return { ...p, completedExercises: next };
+      });
+    },
+    [userId]
+  );
 
-  const addMealEntry = useCallback((m: Omit<MealItem, "id" | "loggedAt">) => {
-    setData((p) => {
-      const key = todayKey;
-      const day = p.loggedMeals[key] ?? [];
-      const entry: MealItem = {
-        ...m,
-        id: crypto.randomUUID(),
-        loggedAt: new Date().toISOString(),
-      };
-      return { ...p, loggedMeals: { ...p.loggedMeals, [key]: [...day, entry] } };
-    });
-  }, []);
+  const addMealEntry = useCallback(
+    (m: Omit<MealItem, "id" | "loggedAt">) => {
+      setData((p) => {
+        const key = todayKey;
+        const day = p.loggedMeals[key] ?? [];
+        const entry: MealItem = { ...m, id: crypto.randomUUID(), loggedAt: new Date().toISOString() };
+        const meals = [...day, entry];
+        persistMealsForDate(key, meals);
+        return { ...p, loggedMeals: { ...p.loggedMeals, [key]: meals } };
+      });
+    },
+    [persistMealsForDate]
+  );
 
-  const removeMealEntry = useCallback((id: string) => {
-    setData((p) => {
-      const key = todayKey;
-      const day = (p.loggedMeals[key] ?? []).filter((m) => m.id !== id);
-      return { ...p, loggedMeals: { ...p.loggedMeals, [key]: day } };
-    });
-  }, []);
+  const removeMealEntry = useCallback(
+    (id: string) => {
+      setData((p) => {
+        const key = todayKey;
+        const meals = (p.loggedMeals[key] ?? []).filter((m) => m.id !== id);
+        persistMealsForDate(key, meals);
+        return { ...p, loggedMeals: { ...p.loggedMeals, [key]: meals } };
+      });
+    },
+    [persistMealsForDate]
+  );
 
   return (
     <AppDataContext.Provider
       value={{
         data,
+        isSyncing,
         updateWeight,
         updateBodyFat,
         updateFitnessScore,
