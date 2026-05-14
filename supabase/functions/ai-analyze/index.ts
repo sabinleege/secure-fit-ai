@@ -226,26 +226,6 @@ RULES:
       });
     }
 
-    if (false) {
-      const call = data?.choices?.[0]?.message?.tool_calls?.[0];
-      const argsStr = call?.function?.arguments;
-      if (!argsStr) {
-        console.error("No tool call returned", JSON.stringify(data).slice(0, 500));
-        return new Response(JSON.stringify({ error: "AI did not return a structured plan" }), {
-          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      let plan: any;
-      try { plan = JSON.parse(argsStr); } catch (e) {
-        return new Response(JSON.stringify({ error: "Failed to parse plan" }), {
-          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      return new Response(JSON.stringify({ plan }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     const text = data?.choices?.[0]?.message?.content ?? "";
     return new Response(JSON.stringify({ text }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
