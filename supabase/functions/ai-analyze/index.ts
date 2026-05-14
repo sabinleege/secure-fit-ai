@@ -6,6 +6,51 @@ const corsHeaders = {
 // Non-streaming structured analyzer for nutrition meals, follow-up reports, and workout plans.
 // Body: { kind: "nutrition" | "followup" | "workout", payload: {...}, context?: {...} }
 
+const DAILY_ADJUST_TOOL = {
+  type: "function",
+  function: {
+    name: "daily_adjust",
+    description: "Analyze the user's goal trajectory and produce today's coaching guidance, recovery score, and notifications.",
+    parameters: {
+      type: "object",
+      properties: {
+        recoveryScore: { type: "number", description: "0-100 today's recovery score considering recent fatigue/pain/sleep proxy and consistency." },
+        consistencyScore: { type: "number", description: "0-100 based on how well user kept up with plan & meals last 7 days." },
+        onTrack: { type: "boolean", description: "Is the user on pace to hit their target weight by their timeline?" },
+        projectedOutcome: { type: "string", description: "Short plain-English projection like 'On track for 75kg by Aug 2026' or '1.2kg behind target'." },
+        focusToday: { type: "string", description: "1 sentence: what the user should focus on today (intensity / rest / nutrition gap)." },
+        coachingTip: { type: "string", description: "One concrete actionable tip under 25 words." },
+        adjustTodayWorkout: {
+          type: "object",
+          description: "Optional adjustment to today's planned workout.",
+          properties: {
+            intensity: { type: "string", enum: ["lighter", "same", "harder", "rest"] },
+            note: { type: "string" },
+          },
+          required: ["intensity", "note"],
+          additionalProperties: false,
+        },
+        notifications: {
+          type: "array",
+          description: "0-3 notifications to surface to the user. Use type 'alert' for safety/off-track, 'tip' for advice, 'reminder' for missed logs, 'success' for positive milestones.",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              message: { type: "string" },
+              type: { type: "string", enum: ["alert", "tip", "reminder", "success"] },
+            },
+            required: ["title", "message", "type"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["recoveryScore", "consistencyScore", "onTrack", "projectedOutcome", "focusToday", "coachingTip", "notifications"],
+      additionalProperties: false,
+    },
+  },
+};
+
 const WORKOUT_TOOL = {
   type: "function",
   function: {
