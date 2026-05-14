@@ -6,6 +6,51 @@ const corsHeaders = {
 // Non-streaming structured analyzer for nutrition meals, follow-up reports, and workout plans.
 // Body: { kind: "nutrition" | "followup" | "workout", payload: {...}, context?: {...} }
 
+const DAILY_ADJUST_TOOL = {
+  type: "function",
+  function: {
+    name: "daily_adjust",
+    description: "Analyze the user's goal trajectory and produce today's coaching guidance, recovery score, and notifications.",
+    parameters: {
+      type: "object",
+      properties: {
+        recoveryScore: { type: "number", description: "0-100 today's recovery score considering recent fatigue/pain/sleep proxy and consistency." },
+        consistencyScore: { type: "number", description: "0-100 based on how well user kept up with plan & meals last 7 days." },
+        onTrack: { type: "boolean", description: "Is the user on pace to hit their target weight by their timeline?" },
+        projectedOutcome: { type: "string", description: "Short plain-English projection like 'On track for 75kg by Aug 2026' or '1.2kg behind target'." },
+        focusToday: { type: "string", description: "1 sentence: what the user should focus on today (intensity / rest / nutrition gap)." },
+        coachingTip: { type: "string", description: "One concrete actionable tip under 25 words." },
+        adjustTodayWorkout: {
+          type: "object",
+          description: "Optional adjustment to today's planned workout.",
+          properties: {
+            intensity: { type: "string", enum: ["lighter", "same", "harder", "rest"] },
+            note: { type: "string" },
+          },
+          required: ["intensity", "note"],
+          additionalProperties: false,
+        },
+        notifications: {
+          type: "array",
+          description: "0-3 notifications to surface to the user. Use type 'alert' for safety/off-track, 'tip' for advice, 'reminder' for missed logs, 'success' for positive milestones.",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              message: { type: "string" },
+              type: { type: "string", enum: ["alert", "tip", "reminder", "success"] },
+            },
+            required: ["title", "message", "type"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["recoveryScore", "consistencyScore", "onTrack", "projectedOutcome", "focusToday", "coachingTip", "notifications"],
+      additionalProperties: false,
+    },
+  },
+};
+
 const WORKOUT_TOOL = {
   type: "function",
   function: {
@@ -85,6 +130,22 @@ Report: pain ${payload?.pain}/10, fatigue ${payload?.fatigue}/10. Notes: ${paylo
 Return: 1) Recovery score 0–100, 2) Adjustment for next session, 3) Any safety alert.` },
         ],
       };
+    } else if (kind === "daily-adjust") {
+      body = {
+        model: "google/gemini-2.5-flash",
+        messages: [
+          {
+            role: "system",
+            content: `You are Fit Buddy AI's daily goal-aware coach. Analyze the user's full profile, goal, recent meals, weight trend, recovery, and active workout plan to decide today's guidance. Be safety-first (injuries, chronic conditions). Be honest about off-track progress without being harsh. Always call the daily_adjust tool. Never reply in plain text.`,
+          },
+          {
+            role: "user",
+            content: `Profile, goal & history:\n${JSON.stringify(payload || {}, null, 2)}\nContext (today, day-of-week, active plan):\n${JSON.stringify(context || {}, null, 2)}`,
+          },
+        ],
+        tools: [DAILY_ADJUST_TOOL],
+        tool_choice: { type: "function", function: { name: "daily_adjust" } },
+      };
     } else if (kind === "workout") {
       body = {
         model: "google/gemini-2.5-flash",
@@ -144,22 +205,23 @@ RULES:
 
     const data = await response.json();
 
-    if (kind === "workout") {
+    if (kind === "workout" || kind === "daily-adjust") {
       const call = data?.choices?.[0]?.message?.tool_calls?.[0];
       const argsStr = call?.function?.arguments;
       if (!argsStr) {
         console.error("No tool call returned", JSON.stringify(data).slice(0, 500));
-        return new Response(JSON.stringify({ error: "AI did not return a structured plan" }), {
+        return new Response(JSON.stringify({ error: "AI did not return structured output" }), {
           status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      let plan: any;
-      try { plan = JSON.parse(argsStr); } catch (e) {
-        return new Response(JSON.stringify({ error: "Failed to parse plan" }), {
+      let parsed: any;
+      try { parsed = JSON.parse(argsStr); } catch {
+        return new Response(JSON.stringify({ error: "Failed to parse AI output" }), {
           status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      return new Response(JSON.stringify({ plan }), {
+      const key = kind === "workout" ? "plan" : "adjust";
+      return new Response(JSON.stringify({ [key]: parsed }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
