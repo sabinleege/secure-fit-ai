@@ -205,7 +205,28 @@ RULES:
 
     const data = await response.json();
 
-    if (kind === "workout") {
+    if (kind === "workout" || kind === "daily-adjust") {
+      const call = data?.choices?.[0]?.message?.tool_calls?.[0];
+      const argsStr = call?.function?.arguments;
+      if (!argsStr) {
+        console.error("No tool call returned", JSON.stringify(data).slice(0, 500));
+        return new Response(JSON.stringify({ error: "AI did not return structured output" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      let parsed: any;
+      try { parsed = JSON.parse(argsStr); } catch {
+        return new Response(JSON.stringify({ error: "Failed to parse AI output" }), {
+          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const key = kind === "workout" ? "plan" : "adjust";
+      return new Response(JSON.stringify({ [key]: parsed }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (false) {
       const call = data?.choices?.[0]?.message?.tool_calls?.[0];
       const argsStr = call?.function?.arguments;
       if (!argsStr) {
