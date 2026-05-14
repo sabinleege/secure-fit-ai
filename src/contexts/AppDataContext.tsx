@@ -314,6 +314,132 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [userId]);
 
+  // ===== Goal-aware AI: run once per day on login =====
+  const adjustRanRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!userId || isSyncing) return;
+    if (adjustRanRef.current === todayKey) return;
+
+    (async () => {
+      try {
+        // Check goal_progress.last_calculated to skip if already done today
+        const { data: gp } = await supabase
+          .from("goal_progress")
+          .select("last_calculated")
+          .eq("user_id", userId)
+          .maybeSingle();
+        const last = gp?.last_calculated ? new Date(gp.last_calculated).toISOString().slice(0, 10) : null;
+        if (last === todayKey) {
+          adjustRanRef.current = todayKey;
+          return;
+        }
+
+        // Build payload from current data
+        const recentMeals = Object.entries(data.loggedMeals)
+          .slice(0, 7)
+          .map(([date, meals]) => ({
+            date,
+            totalCalories: meals.reduce((s, m) => s + (m.calories || 0), 0),
+            totalProtein: meals.reduce((s, m) => s + (m.protein || 0), 0),
+            items: meals.map((m) => ({ slot: m.slot, name: m.name })),
+          }));
+
+        const payload = {
+          profile: data.profile,
+          currentWeight: data.weight,
+          targetWeight: data.profile.targetWeight,
+          timeline: data.profile.timeline,
+          weightHistory: data.weightHistory,
+          recoveryScore: data.recoveryScore,
+          consistencyScore: data.consistencyScore,
+          dailyCaloriesTarget: data.dailyCaloriesTarget,
+          recentMeals,
+        };
+        const ctx = {
+          today: todayKey,
+          dayOfWeek: currentDay,
+          activePlan: data.workoutPlan
+            ? { summary: data.workoutPlan.summary, todayDay: data.workoutPlan.days.find((d) => d.day === currentDay) }
+            : null,
+        };
+
+        const { data: res, error } = await supabase.functions.invoke("ai-analyze", {
+          body: { kind: "daily-adjust", payload, context: ctx },
+        });
+        if (error || !res?.adjust) {
+          console.warn("daily-adjust skipped:", error || res);
+          return;
+        }
+        adjustRanRef.current = todayKey;
+        const adj = res.adjust;
+
+        // Persist computed scores + projection
+        await Promise.all([
+          supabase.from("profiles").update({
+            recovery_score: Math.round(adj.recoveryScore),
+            consistency_score: Math.round(adj.consistencyScore),
+          }).eq("id", userId),
+          supabase.from("goal_progress").upsert({
+            user_id: userId,
+            current_weight: data.weight,
+            projected_outcome: adj.projectedOutcome,
+            last_calculated: new Date().toISOString(),
+          }, { onConflict: "user_id" }),
+        ]);
+
+        // Insert notifications
+        const notifs = (adj.notifications ?? []).slice(0, 3).map((n: any) => ({
+          id: crypto.randomUUID(),
+          user_id: userId,
+          title: n.title,
+          message: n.message,
+          type: n.type,
+        }));
+        if (notifs.length) {
+          await supabase.from("notifications").insert(notifs);
+        }
+
+        // Always add coaching tip as a notification
+        const tipId = crypto.randomUUID();
+        await supabase.from("notifications").insert({
+          id: tipId,
+          user_id: userId,
+          title: adj.onTrack ? "On track 🎯" : "Goal check-in",
+          message: `${adj.focusToday} — ${adj.coachingTip}`,
+          type: adj.onTrack ? "success" : "tip",
+        });
+
+        // Reflect in local state
+        setData((p) => ({
+          ...p,
+          recoveryScore: Math.round(adj.recoveryScore),
+          consistencyScore: Math.round(adj.consistencyScore),
+          notifications: [
+            {
+              id: tipId,
+              title: adj.onTrack ? "On track 🎯" : "Goal check-in",
+              message: `${adj.focusToday} — ${adj.coachingTip}`,
+              type: (adj.onTrack ? "success" : "tip") as Notification["type"],
+              read: false,
+              time: "just now",
+            },
+            ...notifs.map((n) => ({
+              id: n.id,
+              title: n.title,
+              message: n.message,
+              type: n.type as Notification["type"],
+              read: false,
+              time: "just now",
+            })),
+            ...p.notifications,
+          ],
+        }));
+      } catch (e) {
+        console.error("daily-adjust error:", e);
+      }
+    })();
+  }, [userId, isSyncing, data.profile, data.weight, data.workoutPlan, data.recoveryScore, data.consistencyScore, data.weightHistory, data.loggedMeals, data.dailyCaloriesTarget]);
+
   // ===== persistence helpers (fire-and-forget) =====
   const persistProfile = useCallback(
     (patch: Record<string, any>) => {
