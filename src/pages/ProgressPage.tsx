@@ -118,7 +118,7 @@ export default function ProgressPage() {
         <StatCard label="Weight Lost" value="4.1 kg" icon={Scale} trend="-0.4" trendUp />
         <StatCard label="Total Burned" value="18,440" icon={Flame} trend="+12%" trendUp />
         <StatCard label="Consistency" value={`${data.consistencyScore}%`} icon={Target} trend="+4%" trendUp />
-        <StatCard label="Fitness" value={`${data.fitnessScore}`} icon={Zap} trend="+13" trendUp glowColor="secondary" />
+        <StatCard label="Fitness" value={`${data.fitnessScore}`} icon={Zap} trend="+13" trendUp accent="accent" />
       </motion.div>
 
       {/* Weight Chart - reactive */}
