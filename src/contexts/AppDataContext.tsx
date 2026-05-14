@@ -319,6 +319,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!userId || isSyncing) return;
     if (adjustRanRef.current === todayKey) return;
+    adjustRanRef.current = todayKey;
 
     (async () => {
       try {
