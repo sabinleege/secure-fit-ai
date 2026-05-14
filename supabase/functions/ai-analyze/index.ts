@@ -130,6 +130,22 @@ Report: pain ${payload?.pain}/10, fatigue ${payload?.fatigue}/10. Notes: ${paylo
 Return: 1) Recovery score 0–100, 2) Adjustment for next session, 3) Any safety alert.` },
         ],
       };
+    } else if (kind === "daily-adjust") {
+      body = {
+        model: "google/gemini-2.5-flash",
+        messages: [
+          {
+            role: "system",
+            content: `You are Fit Buddy AI's daily goal-aware coach. Analyze the user's full profile, goal, recent meals, weight trend, recovery, and active workout plan to decide today's guidance. Be safety-first (injuries, chronic conditions). Be honest about off-track progress without being harsh. Always call the daily_adjust tool. Never reply in plain text.`,
+          },
+          {
+            role: "user",
+            content: `Profile, goal & history:\n${JSON.stringify(payload || {}, null, 2)}\nContext (today, day-of-week, active plan):\n${JSON.stringify(context || {}, null, 2)}`,
+          },
+        ],
+        tools: [DAILY_ADJUST_TOOL],
+        tool_choice: { type: "function", function: { name: "daily_adjust" } },
+      };
     } else if (kind === "workout") {
       body = {
         model: "google/gemini-2.5-flash",
