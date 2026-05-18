@@ -8,7 +8,9 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import AuthPage from "./pages/AuthPage";
+import OnboardingPage from "./pages/OnboardingPage";
 import { AuthGuard } from "@/components/AuthGuard";
+import { OnboardingGate } from "@/components/OnboardingGate";
 import { AppLayout } from "@/components/AppLayout";
 import WorkoutPage from "./pages/WorkoutPage";
 import NutritionPage from "./pages/NutritionPage";
@@ -21,7 +23,7 @@ import SettingsPage from "./pages/SettingsPage";
 const queryClient = new QueryClient();
 
 function LayoutPage({ children }: { children: React.ReactNode }) {
-  return <AuthGuard><AppLayout>{children}</AppLayout></AuthGuard>;
+  return <AuthGuard><OnboardingGate><AppLayout>{children}</AppLayout></OnboardingGate></AuthGuard>;
 }
 
 const App = () => (
@@ -33,8 +35,9 @@ const App = () => (
           <Sonner />
           <BrowserRouter>
             <Routes>
-              <Route path="/" element={<AuthGuard><Index /></AuthGuard>} />
+              <Route path="/" element={<AuthGuard><OnboardingGate><Index /></OnboardingGate></AuthGuard>} />
               <Route path="/auth" element={<AuthPage />} />
+              <Route path="/onboarding" element={<AuthGuard><OnboardingPage /></AuthGuard>} />
               <Route path="/workout" element={<LayoutPage><WorkoutPage /></LayoutPage>} />
               <Route path="/nutrition" element={<LayoutPage><NutritionPage /></LayoutPage>} />
               <Route path="/followup" element={<LayoutPage><FollowUpPage /></LayoutPage>} />
