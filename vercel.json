@@ -3,7 +3,28 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
+  "installCommand": "npm install",
+  "build": {
+    "env": {
+      "VITE_SUPABASE_PROJECT_ID": "naukxmsvyueijihikadc",
+      "VITE_SUPABASE_URL": "https://naukxmsvyueijihikadc.supabase.co",
+      "VITE_SUPABASE_PUBLISHABLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5hdWt4bXN2eXVlaWppaGlrYWRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4NTIyNDUsImV4cCI6MjA5MjQyODI0NX0.BHeqDOFbEb1S8-5QjmHq9wPpJWNyHpHzKh_eQFTIWQo"
+    }
+  },
+  "env": {
+    "VITE_SUPABASE_PROJECT_ID": "naukxmsvyueijihikadc",
+    "VITE_SUPABASE_URL": "https://naukxmsvyueijihikadc.supabase.co",
+    "VITE_SUPABASE_PUBLISHABLE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5hdWt4bXN2eXVlaWppaGlrYWRjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4NTIyNDUsImV4cCI6MjA5MjQyODI0NX0.BHeqDOFbEb1S8-5QjmHq9wPpJWNyHpHzKh_eQFTIWQo"
+  },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!assets/).*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    }
   ]
 }
