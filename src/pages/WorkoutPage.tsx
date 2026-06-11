@@ -164,7 +164,7 @@ function WorkoutDayCard({ workout, isToday }: { workout: PlanDay; isToday: boole
             <span className="flex items-center gap-1"><Flame className="w-3 h-3" /> {workout.calories}</span>
           </div>
           <div className="space-y-1">
-            {workout.exercises.map((ex) => (
+            {(workout.exercises ?? []).map((ex) => (
               <ExerciseRow key={ex.name} exercise={ex} dayName={workout.day} />
             ))}
           </div>
@@ -188,7 +188,7 @@ export default function WorkoutPage() {
   const isAIGenerated = !!data.workoutPlan;
   const today = data.currentDay;
 
-  const totalExercises = plan.days.reduce((sum, d) => sum + d.exercises.length, 0);
+  const totalExercises = plan.days.reduce((sum, d) => sum + (d.exercises?.length ?? 0), 0);
   const completedCount = data.completedExercises.length;
   const progressPct = totalExercises > 0 ? Math.round((completedCount / totalExercises) * 100) : 0;
   const totalDuration = plan.days.reduce((sum, d) => {
