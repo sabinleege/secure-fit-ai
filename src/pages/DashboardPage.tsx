@@ -222,7 +222,7 @@ export default function DashboardPage() {
         ) : (
           <>
             <div className="space-y-2">
-              {todayWorkout.exercises.slice(0, 5).map((ex) => (
+              {(todayWorkout.exercises ?? []).slice(0, 5).map((ex) => (
                 <div key={ex.name} className="flex items-center justify-between py-2 border-b border-border/40 last:border-0">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className="w-7 h-7 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
