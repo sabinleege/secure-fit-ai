@@ -188,7 +188,7 @@ export default function WorkoutPage() {
   const isAIGenerated = !!data.workoutPlan;
   const today = data.currentDay;
 
-  const totalExercises = plan.days.reduce((sum, d) => sum + d.exercises.length, 0);
+  const totalExercises = plan.days.reduce((sum, d) => sum + (d.exercises?.length ?? 0), 0);
   const completedCount = data.completedExercises.length;
   const progressPct = totalExercises > 0 ? Math.round((completedCount / totalExercises) * 100) : 0;
   const totalDuration = plan.days.reduce((sum, d) => {
