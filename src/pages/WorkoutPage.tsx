@@ -192,11 +192,11 @@ export default function WorkoutPage() {
   const completedCount = data.completedExercises.length;
   const progressPct = totalExercises > 0 ? Math.round((completedCount / totalExercises) * 100) : 0;
   const totalDuration = plan.days.reduce((sum, d) => {
-    const m = parseInt(d.duration);
+    const m = parseInt(String(d.duration ?? ""));
     return sum + (isNaN(m) ? 0 : m);
   }, 0);
   const totalCals = plan.days.reduce((sum, d) => {
-    const m = parseInt(d.calories.replace(/\D/g, ""));
+    const m = parseInt(String(d.calories ?? "").replace(/\D/g, ""));
     return sum + (isNaN(m) ? 0 : m);
   }, 0);
 
