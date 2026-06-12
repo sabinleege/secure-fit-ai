@@ -294,13 +294,13 @@ export default function WorkoutPage() {
               <p className="text-xs text-muted-foreground mt-1">{plan.summary}</p>
               <div className="flex flex-wrap gap-2 mt-3">
                 <Badge variant="outline" className="text-[10px] border-border">
-                  Recovery {plan.basedOn.recoveryScore}
+                  Recovery {plan.basedOn?.recoveryScore ?? data.recoveryScore ?? 0}
                 </Badge>
                 <Badge variant="outline" className="text-[10px] border-border">
-                  {plan.basedOn.profession}
+                  {plan.basedOn?.profession ?? data.profile?.profession ?? "—"}
                 </Badge>
                 <Badge variant="outline" className="text-[10px] border-border">
-                  Injuries: {plan.basedOn.injuries}
+                  Injuries: {plan.basedOn?.injuries || "none"}
                 </Badge>
               </div>
             </div>
